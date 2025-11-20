@@ -1,0 +1,16 @@
+{application, comictrack_bot, [
+    {description, "An OTP application"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {comictrack_bot_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        cowboy,
+        gun
+    ]},
+    {env, []},
+    {modules, []},
+    {licenses, ["The Unlicense"]},
+    {links, []}
+ ]}.
