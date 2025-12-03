@@ -27,13 +27,16 @@ start_link(BotToken) ->
 %%                  modules => modules()}   % optional
 init([BotToken]) ->
     SupFlags = #{
-        strategy => one_for_all,
+        strategy => one_for_one,
         intensity => 3,
         period => 60
     },
     ChildSpecs = [
         #{id => discord_api,
           start => {discord_api, start_link, [BotToken]}
+         },
+        #{id => discord_gateway,
+          start => {discord_gateway, start_link, [BotToken]}
          }
     ],
     {ok, {SupFlags, ChildSpecs}}.
