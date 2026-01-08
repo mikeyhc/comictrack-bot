@@ -7,7 +7,7 @@
 
 -behaviour(application).
 
--export([start/2, stop/1]).
+-export([start/2, stop/1, install/3]).
 
 start(_StartType, _StartArgs) ->
     RequiredEnv = ["DISCORD_BOT_TOKEN"],
@@ -25,5 +25,9 @@ start(_StartType, _StartArgs) ->
 
 stop(_State) ->
     ok.
+
+install(Nodes, DiscordAppId, DiscordBotToken) ->
+    comicvine_db:install(Nodes),
+    discord_commands:install(DiscordAppId, DiscordBotToken).
 
 %% internal functions

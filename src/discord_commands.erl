@@ -1,6 +1,13 @@
 -module(discord_commands).
 
--export([register_commands/1]).
+-include_lib("kernel/include/logger.hrl").
+
+-export([install/2]).
+
+install(ApplicationId, BotToken) ->
+    application:ensure_all_started(gun),
+    discord_api:start_link(BotToken),
+    register_commands(ApplicationId).
 
 register_commands(ApplicationId) ->
     Results = lists:map(fun(Cmd) ->
@@ -8,7 +15,8 @@ register_commands(ApplicationId) ->
                         end, command_list()),
     lists:foreach(fun({error, Err}) -> throw(Err);
                      (_) -> ok
-                  end, Results).
+                  end, Results),
+    ?LOG_INFO("successfully added all discord commmands").
 
 command_list() ->
     [comictrack_command()].
