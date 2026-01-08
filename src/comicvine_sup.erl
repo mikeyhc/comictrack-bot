@@ -1,21 +1,20 @@
 %%%-------------------------------------------------------------------
-%% @doc comictrack_bot top level supervisor.
+%% @doc comicvine process supervisor.
 %% @end
 %%%-------------------------------------------------------------------
 
--module(comictrack_bot_sup).
+-module(comicvine_sup).
 
 -behaviour(supervisor).
 
--export([start_link/2]).
+-export([start_link/1]).
 
 -export([init/1]).
 
 -define(SERVER, ?MODULE).
 
-start_link(DiscordBotToken, ComicvineApiKey) ->
-    supervisor:start_link({local, ?SERVER}, ?MODULE,
-                          [DiscordBotToken, ComicvineApiKey]).
+start_link(ApiKey) ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, [ApiKey]).
 
 %% sup_flags() = #{strategy => strategy(),         % optional
 %%                 intensity => non_neg_integer(), % optional
@@ -26,20 +25,15 @@ start_link(DiscordBotToken, ComicvineApiKey) ->
 %%                  shutdown => shutdown(), % optional
 %%                  type => worker(),       % optional
 %%                  modules => modules()}   % optional
-init([DiscordBotToken, ComicvineApiKey]) ->
+init([ApiKey]) ->
     SupFlags = #{
-        strategy => one_for_all,
+        strategy => one_for_one,
         intensity => 3,
-        period => 600
+        period => 60
     },
     ChildSpecs = [
-        #{id => discord_sup,
-          start => {discord_sup, start_link, [DiscordBotToken]},
-          type => supervisor
-         },
-        #{id => comicvine_sup,
-          start => {comicvine_sup, start_link, [ComicvineApiKey]},
-          type => supervisor
+        #{id => comicvine_api,
+          start => {comicvine_api, start_link, [ApiKey]}
          }
     ],
     {ok, {SupFlags, ChildSpecs}}.

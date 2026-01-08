@@ -18,13 +18,14 @@
 -define(SERVER_NAME, ?MODULE).
 -define(UPGRADE_TIMEOUT, 5000).
 -define(LIBRARY_NAME, <<"comictrack/1.0">>).
--define(INTENTS, 2048).
+-define(INTENTS, 0).
 -define(HEARTBEAT_ACK_TIMEOUT, 5000).
 
 % op codes
 -define(MESSAGE_OP, 0).
 -define(HEARTBEAT_OP, 1).
 -define(IDENTIFY_OP, 2).
+-define(RECONNECT_OP, 7).
 -define(HELLO_OP, 10).
 -define(HEARTBEAT_ACK_OP, 11).
 
@@ -97,7 +98,7 @@ await_hello(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
                   },
     Identify = #{<<"token">> => list_to_binary(Config#configuration.bot_token),
                  <<"properties">> => Properties,
-                 <<"intents">> => 0
+                 <<"intents">> => ?INTENTS
                 },
     send_ws_message(?IDENTIFY_OP, Identify, Data),
     {next_state, await_ready, Data#data{hearbeat=HeartbeatPid}};
@@ -148,10 +149,15 @@ connected(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
     case maps:get(<<"op">>, Msg) of
         ?MESSAGE_OP ->
             ?LOG_DEBUG("received message: ~p", [Msg]),
-            message_engine:process(maps:get(<<"d">>, Msg));
+            ?LOG_DEBUG("JSON message: ~s", [jsone:encode(Msg)]),
+            message_engine:process(maps:get(<<"d">>, Msg)),
+            {keep_state, Data};
+        ?RECONNECT_OP ->
+            gen_statem:cast(self(), reconnect),
+            gun:close(ConnPid),
+            {next_state, disconnected, Data#data{connection=undefined}};
         OpCode -> throw({unexpected_op_code, OpCode, Msg})
-    end,
-    {keep_state, Data};
+    end;
 connected(info, Msg, Data) ->
     handle_common(Msg, Data).
 

@@ -6,7 +6,9 @@
     {applications, [
         kernel,
         stdlib,
-        gun
+        mnesia,
+        gun,
+        jsone
     ]},
     {env, []},
     {modules, []},

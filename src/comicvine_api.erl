@@ -6,7 +6,7 @@
 
 % Public API
 -export([start_link/1]).
--export([volumes/1]).
+-export([issues/1, volume/1, volumes/1]).
 
 % gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
@@ -18,6 +18,10 @@
 -define(USER_AGENT, "curl/8.7.1").
 -define(DEFAULT_FORMAT, "json").
 -define(DEFAULT_TIMEOUT, 10_000).
+-define(DEFAULT_RETRIES, 3).
+
+-define(ISSUE_TYPE, 4000).
+-define(VOLUME_TYPE, 4050).
 
 -record(connection, {pid  :: pid(),
                      mref :: reference()
@@ -40,9 +44,26 @@
 start_link(Token) ->
     gen_server:start_link({local, ?SERVER_NAME}, ?MODULE, [Token], []).
 
+-spec volume(non_neg_integer()) -> {ok, #{}} | {error, not_found}.
+volume(VolumeId) ->
+    {ok, {200, Body}} = api_call(get, build_url("/volume/~p-~p",
+                                                [?VOLUME_TYPE, VolumeId])),
+    Reply = jsone:decode(Body),
+    case maps:get(<<"error">>, Reply) of
+        <<"OK">> -> {ok, Reply};
+        <<"Object Not Found">> -> {error, not_found}
+    end.
+
 -spec volumes([{string(), string()}]) -> {ok, #{}}.
 volumes(Filters) ->
     {ok, {200, Body}} = api_call(get, "/volumes", [build_filter(Filters)]),
+    Reply = jsone:decode(Body),
+    #{<<"error">> := <<"OK">>} = Reply,
+    {ok, Reply}.
+
+-spec issues([{string(), string()}]) -> {ok, #{}}.
+issues(Filters) ->
+    {ok, {200, Body}} = api_call(get, "/issues", [build_filter(Filters)]),
     Reply = jsone:decode(Body),
     #{<<"error">> := <<"OK">>} = Reply,
     {ok, Reply}.
@@ -124,9 +145,20 @@ handle_info({gun_data, ConnPid, StreamRef, Fin, Data},
     end.
 
 % helper functions
+api_call(Method, Resource) ->
+    api_call(Method, Resource, []).
+
 api_call(Method, Resource, QueryParams) ->
+    api_call(Method, Resource, QueryParams, ?DEFAULT_RETRIES).
+
+api_call(_Method, _Resource, _QueryParams, 0) -> {error, timeout};
+api_call(Method, Resource, QueryParams, Retries) ->
     {ok, Ref} = gen_server:call(?SERVER_NAME, {Method, Resource, QueryParams}),
-    await_response(Ref).
+    case await_response(Ref) of
+        {error, timeout} ->
+            api_call(Method, Resource, QueryParams, Retries - 1);
+        Reply -> Reply
+    end.
 
 build_body(Parts) ->
     lists:foldl(fun(X, Acc) -> <<X/binary, Acc/binary>> end, <<>>, Parts).
@@ -160,3 +192,6 @@ default_query_params(#state{configuration=#configuration{token=Token}}) ->
 build_filter(Filters) ->
     MapFn = fun({K, V}) -> K ++ ":" ++ V end,
     {"filter", lists:flatten(lists:join(",", lists:map(MapFn, Filters)))}.
+
+build_url(String, Args) ->
+    lists:flatten(io_lib:format(String, Args)).

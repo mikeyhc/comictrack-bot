@@ -1,0 +1,41 @@
+-module(user_db).
+
+% Public API
+-export([install/1]).
+-export([add_user_volume/2, get_user_volumes/1, get_all_volumes/0]).
+
+-record(user_volume, {user_id :: binary(),
+                      volume_id :: non_neg_integer()
+                     }).
+
+-spec install([node()]) -> ok.
+install(Nodes) ->
+    Tables = #{
+        user_volume => [{attributes,
+                         record_info(fields, user_volume)},
+                        {type, bag},
+                        {disc_copies, Nodes}]
+    },
+    db_utils:install(Nodes, Tables).
+
+-spec add_user_volume(binary(), non_neg_integer()) -> ok.
+add_user_volume(UserId, VolumeId) ->
+    Record = #user_volume{user_id=UserId, volume_id=VolumeId},
+    mnesia:activity(transaction, fun() -> mnesia:write(Record) end).
+
+-spec get_user_volumes(binary()) -> [non_neg_integer()].
+get_user_volumes(UserId) ->
+    lists:map(fun(#user_volume{volume_id=V}) -> V end,
+              mnesia:activity(transaction,
+                              fun() -> mnesia:read({user_volume, UserId}) end)).
+
+-spec get_all_volumes() -> [non_neg_integer()].
+get_all_volumes() ->
+    Fun = fun() -> mnesia:foldl(fun(#user_volume{volume_id=V}, Acc) ->
+                                        sets:add_element(V, Acc)
+                                end,
+                                sets:new(),
+                                user_volume)
+          end,
+    sets:to_list(mnesia:activity(transaction, Fun)).
+

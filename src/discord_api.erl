@@ -55,7 +55,8 @@ register_command(ApplicationId, Command) ->
 interaction_callback(InteractionId, InteractionToken, Body) ->
     Url = build_url("/interactions/~s/~s/callback",
                     [InteractionId, InteractionToken]),
-    post_api_call(Url, jsone:encode(Body)).
+    ok = post_api_call(Url, jsone:encode(Body)),
+    ok.
 
 % gen_server callbacks
 init([BotToken]) ->
@@ -181,6 +182,7 @@ build_url(String, Args) ->
 
 post_api_call(Url, Body) ->
     {ok, {Code, Reply}} = api_call(post, Url, Body),
+    ?LOG_DEBUG("~p recevied ~p", [Url, Code]),
     if Code >= 200 andalso Code < 300 ->
            case Reply of
                no_data -> ok;

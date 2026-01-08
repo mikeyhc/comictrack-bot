@@ -36,7 +36,14 @@ volume_subcommand() ->
       options => [
         #{name => <<"add">>,
           description => <<"Add a volume to track">>,
-          type => 1
+          type => 1,
+          options => [
+            #{name => <<"name">>,
+              description => <<"The volume to add">>,
+              type => 3,
+              required => true
+            }
+          ]
          }
       ]
      }.
