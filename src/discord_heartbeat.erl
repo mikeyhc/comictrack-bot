@@ -4,4 +4,6 @@
 
 start(IV) ->
     CallerPid = self(),
-    timer:apply_repeatedly(IV, fun() -> CallerPid ! heartbeat end).
+    Fun = fun() -> CallerPid ! heartbeat end,
+    {ok, {interval, Ref}} = timer:apply_interval(IV, Fun),
+    {ok, Ref}.

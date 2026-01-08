@@ -9,7 +9,8 @@
 
 % gen_statem callbacks
 -export([callback_mode/0, init/1]).
--export([disconnected/3, await_hello/3, await_ready/3]).
+-export([disconnected/3, await_hello/3, await_ready/3, await_heartbeat_ack/3,
+         connected/3]).
 
 -define(WSS_PORT, 443).
 -define(WEBSOCKET_API_VERSION, "10").
@@ -18,6 +19,7 @@
 -define(UPGRADE_TIMEOUT, 5000).
 -define(LIBRARY_NAME, <<"comictrack/1.0">>).
 -define(INTENTS, 2048).
+-define(HEARTBEAT_ACK_TIMEOUT, 5000).
 
 % op codes
 -define(MESSAGE_OP, 0).
@@ -35,10 +37,11 @@
 
 -record(configuration, {bot_token :: string() | binary()}).
 
--record(data, {connection    :: optional(#connection{}),
-               hearbeat      :: optional(reference()),
-               sequence      :: optional(non_neg_integer()),
-               configuration :: #configuration{}
+-record(data, {connection     :: optional(#connection{}),
+               hearbeat       :: optional(reference()),
+               sequence       :: optional(non_neg_integer()),
+               previous_state :: optional(atom()),
+               configuration  :: #configuration{}
                }).
 
 % Public API
@@ -47,12 +50,14 @@ start_link(BotToken) ->
     gen_statem:start_link({local, ?SERVER_NAME}, ?MODULE, [BotToken], []).
 
 % gen_statem callbacks
-callback_mode() -> state_functions.
+callback_mode() -> [state_functions, state_enter].
 
 init([BotToken]) ->
     gen_statem:cast(self(), connect),
     {ok, disconnected, #data{configuration=#configuration{bot_token=BotToken}}}.
 
+disconnected(enter, _OldState, Data) ->
+    {keep_state, Data};
 disconnected(cast, connect, Data) ->
     {ok, Gateway} = discord_api:get_gateway_bot(),
     #{<<"url">> := Url} = Gateway,
@@ -77,12 +82,14 @@ disconnected(cast, connect, Data) ->
                              host=GatewayHost},
     {next_state, await_hello, Data#data{connection=Connection}}.
 
+await_hello(enter, _OldState, Data) ->
+    {keep_state, Data};
 await_hello(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
             Data=#data{connection=#connection{pid=ConnPid, sref=StreamRef},
                        configuration=Config}) ->
     #{<<"op">> := ?HELLO_OP, <<"d">> := D} = jsone:decode(Msg),
     #{<<"heartbeat_interval">> := HeartbeatIV} = D,
-    HeartbeatPid = discord_heartbeat:start(HeartbeatIV),
+    {ok, HeartbeatPid} = discord_heartbeat:start(HeartbeatIV),
     ?LOG_INFO("heartbeat started with interval: ~p", [HeartbeatIV]),
     Properties = #{<<"os">> => build_os(),
                    <<"browser">> => ?LIBRARY_NAME,
@@ -97,25 +104,60 @@ await_hello(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
 await_hello(info, Msg, Data) ->
     handle_common(Msg, Data).
 
-await_ready(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
+await_ready(enter, _OldState, Data) ->
+    {keep_state, Data};
+await_ready(info, {gun_ws, ConnPid, StreamRef, {text, JsonMsg}},
             Data=#data{connection=#connection{pid=ConnPid, sref=StreamRef}}) ->
-    #{<<"op">> := Op, <<"s">> := Seq0} = jsone:decode(Msg),
-    case Op of
+    Msg = jsone:decode(JsonMsg),
+    case maps:get(<<"op">>, Msg) of
         ?MESSAGE_OP ->
-            ?LOG_INFO("discord gateway is now connected");
-        ?HEARTBEAT_ACK_OP ->
-            ?LOG_INFO("receive heartbeat ack")
-    end,
-    Seq1 = if Seq0 =:= null -> Data#data.sequence;
-              true -> Seq0
-           end,
-    {keep_state, Data#data{sequence=Seq1}};
+            ?LOG_INFO("discord gateway is now connected"),
+            {next_state, connected, update_seq(Msg, Data)};
+        Op ->
+            {stop, {unexpected_op_code, Op}, Data}
+    end;
 await_ready(info, Msg, Data) ->
+    handle_common(Msg, Data).
+
+await_heartbeat_ack(enter, OldState, Data) ->
+    {keep_state, Data#data{previous_state=OldState},
+     [{state_timeout, ?HEARTBEAT_ACK_TIMEOUT, ack_timeout}]};
+await_heartbeat_ack(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
+                    Data=#data{connection=#connection{pid=ConnPid,
+                                                      sref=StreamRef}}) ->
+    Msg = jsone:decode(JsonMsg),
+    case maps:get(<<"op">>, Msg) of
+        ?HEARTBEAT_ACK_OP ->
+            ?LOG_INFO("received heartbeat ack"),
+            {next_state, Data#data.previous_state,
+             update_seq(Msg, Data#data{previous_state=undefined})};
+        _ ->
+            {keep_state, Data, [postpone]}
+    end;
+await_heartbeat_ack(state_timeout, ack_timeout, Data) ->
+    {stop, {error, heartbeat_ack_timeout}, Data};
+await_heartbeat_ack(info, Msg, Data) ->
+    handle_down(Msg, Data).
+
+connected(enter, _OldState, Data) ->
+    {keep_state, Data};
+connected(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
+          Data=#data{connection=#connection{pid=ConnPid,
+                                            sref=StreamRef}}) ->
+    Msg = jsone:decode(JsonMsg),
+    case maps:get(<<"op">>, Msg) of
+        ?MESSAGE_OP ->
+            ?LOG_DEBUG("received message: ~p", [Msg]),
+            message_engine:process(maps:get(<<"d">>, Msg));
+        OpCode -> throw({unexpected_op_code, OpCode, Msg})
+    end,
+    {keep_state, Data};
+connected(info, Msg, Data) ->
     handle_common(Msg, Data).
 
 % helper methods
 
-handle_common({gun_down, ConnPid, http, closed, _Remaining},
+handle_down({gun_down, ConnPid, ws, closed, _Remaining},
               Data=#data{connection=#connection{pid=ConnPid, host=Host}}) ->
     ?LOG_INFO("~p temporarily disconnected from ~s:~p",
               [ConnPid, Host, ?WSS_PORT]),
@@ -123,17 +165,22 @@ handle_common({gun_down, ConnPid, http, closed, _Remaining},
     ?LOG_INFO("~p reconnected to ~s:~p with protocol ~p",
               [ConnPid, Host, ?WSS_PORT, Protocol]),
     {keep_state, Data};
-handle_common({gun_down, ConnPid, _Protocol, Err={error, _Error},
+handle_down({gun_down, ConnPid, _Protocol, Err={error, _Error},
                _StreamRefs=[]},
             #data{connection=#connection{pid=ConnPid, host=Host}}) ->
     ?LOG_INFO("~p permanently disconnected from ~s:~p",
               [ConnPid, Host, ?WSS_PORT]),
-    throw(Err);
+    throw(Err).
+
+
 handle_common(heartbeat, Data) ->
     send_heartbeat(Data),
-    {keep_state, Data}.
+    {next_state, await_heartbeat_ack, Data};
+handle_common(Msg, Data) ->
+    handle_down(Msg, Data).
 
 send_heartbeat(Data=#data{sequence=Seq}) ->
+    ?LOG_INFO("sending heartbeat"),
     send_ws_message(?HEARTBEAT_OP, Seq, Data).
 
 build_os() ->
@@ -145,6 +192,9 @@ build_os() ->
 send_ws_message(OpCode, D,
                 #data{connection=#connection{pid=ConnPid, sref=StreamRef}}) ->
     Msg = #{<<"op">> => OpCode, <<"d">> => D},
-    ?LOG_INFO("sending message: ~p", [jsone:encode(Msg, [undefined_as_null])]),
+    ?LOG_DEBUG("sending message: ~p", [jsone:encode(Msg, [undefined_as_null])]),
     gun:ws_send(ConnPid, StreamRef,
                 {text, jsone:encode(Msg, [undefined_as_null])}).
+
+update_seq(#{<<"s">> := null}, Data) -> Data;
+update_seq(#{<<"s">> := Seq}, Data) -> Data#data{sequence=Seq}.

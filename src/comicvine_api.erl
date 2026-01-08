@@ -1,4 +1,4 @@
--module(discord_api).
+-module(comicvine_api).
 -behaviour(gen_server).
 
 -include_lib("kernel/include/logger.hrl").
@@ -6,25 +6,24 @@
 
 % Public API
 -export([start_link/1]).
--export([get_gateway_bot/0]).
--export([register_command/2, interaction_callback/3]).
+-export([volumes/1]).
 
 % gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
 
 -define(SERVER_NAME, ?MODULE).
--define(DISCORD_HOST, "discord.com").
--define(DISCORD_PORT, 443).
--define(DISCORD_API_VERSION, "v10").
--define(USER_AGENT, "comictrack/1.0").
--define(ACCEPT_STRING, "application/json").
+-define(COMICVINE_HOST, "comicvine.gamespot.com").
+-define(COMICVINE_PORT, 443).
+% this needs to be a well known agent
+-define(USER_AGENT, "curl/8.7.1").
+-define(DEFAULT_FORMAT, "json").
 -define(DEFAULT_TIMEOUT, 10_000).
 
 -record(connection, {pid  :: pid(),
                      mref :: reference()
                     }).
 
--record(configuration, {bot_token :: string() | binary()}).
+-record(configuration, {token :: string() | binary()}).
 
 -record(request, {pid              :: pid(),
                   status=undefined :: optional(non_neg_integer()),
@@ -38,55 +37,36 @@
 
 % Public API
 -spec start_link(string() | binary()) -> {ok, pid()}.
-start_link(BotToken) ->
-    gen_server:start_link({local, ?SERVER_NAME}, ?MODULE, [BotToken], []).
+start_link(Token) ->
+    gen_server:start_link({local, ?SERVER_NAME}, ?MODULE, [Token], []).
 
--spec get_gateway_bot() -> {ok, #{}}.
-get_gateway_bot() ->
-    {ok, {200, Body}} = api_call(get, "/gateway/bot"),
-    {ok, json:decode(Body)}.
-
--spec register_command(non_neg_integer(), #{}) -> {ok, #{}}.
-register_command(ApplicationId, Command) ->
-    Url = build_url("/applications/~p/commands", [ApplicationId]),
-    post_api_call(Url, jsone:encode(Command)).
-
--spec interaction_callback(iolist(), iolist(), #{}) -> {ok, #{}}.
-interaction_callback(InteractionId, InteractionToken, Body) ->
-    Url = build_url("/interactions/~s/~s/callback",
-                    [InteractionId, InteractionToken]),
-    post_api_call(Url, jsone:encode(Body)).
+-spec volumes([{string(), string()}]) -> {ok, #{}}.
+volumes(Filters) ->
+    {ok, {200, Body}} = api_call(get, "/volumes", [build_filter(Filters)]),
+    Reply = jsone:decode(Body),
+    #{<<"error">> := <<"OK">>} = Reply,
+    {ok, Reply}.
 
 % gen_server callbacks
-init([BotToken]) ->
+init([Token]) ->
     gen_server:cast(self(), connect),
-    {ok, #state{configuration=#configuration{bot_token=BotToken}}}.
+    {ok, #state{configuration=#configuration{token=Token}}}.
 
-handle_call({get, Resource}, {Pid, _Tags},
+handle_call({get, Resource, Query}, {Pid, _Tags},
             State=#state{connection=Conn, requests=Reqs}) ->
-    ?LOG_DEBUG("sending GET to ~p", [Resource]),
-    StreamRef = gun:get(Conn#connection.pid,
-                        "/api/" ++ ?DISCORD_API_VERSION ++ Resource,
-                        build_headers(State)),
-    {reply, {ok, StreamRef},
-     State#state{requests=Reqs#{StreamRef => #request{pid=Pid}}}};
-handle_call({post, Resource, Body}, {Pid, _Tags},
-            State=#state{connection=Conn, requests=Reqs}) ->
-    ?LOG_DEBUG("sending POST to ~p", [Resource]),
-    ?LOG_DEBUG("included body ~p", [Body]),
-    StreamRef = gun:post(Conn#connection.pid,
-                         "/api/" ++ ?DISCORD_API_VERSION ++ Resource,
-                         build_headers(State, post_headers()),
-                         Body),
+    QueryString = build_query_params(default_query_params(State) ++ Query),
+    FullUrl = "/api" ++ Resource ++ "/" ++ QueryString,
+    ?LOG_DEBUG("sending GET to ~p", [FullUrl]),
+    StreamRef = gun:get(Conn#connection.pid, FullUrl, build_headers(State)),
     {reply, {ok, StreamRef},
      State#state{requests=Reqs#{StreamRef => #request{pid=Pid}}}}.
 
 handle_cast(connect, State0) ->
-    {ok, ConnPid} = gun:open(?DISCORD_HOST, ?DISCORD_PORT, #{}),
+    {ok, ConnPid} = gun:open(?COMICVINE_HOST, ?COMICVINE_PORT, #{}),
     MRef = monitor(process, ConnPid),
     {ok, Protocol} = gun:await_up(ConnPid),
     ?LOG_INFO("~p connected to ~s:~p with protocol ~p",
-              [ConnPid, ?DISCORD_HOST, ?DISCORD_PORT, Protocol]),
+              [ConnPid, ?COMICVINE_HOST, ?COMICVINE_PORT, Protocol]),
     State1 = State0#state{connection=#connection{pid=ConnPid,
                                                  mref=MRef
                                                 }},
@@ -96,20 +76,21 @@ handle_cast(connect, State0) ->
 handle_info({gun_down, ConnPid, _Protocol, normal, _StreamRefs=[]},
             State=#state{connection=#connection{pid=ConnPid}}) ->
     ?LOG_INFO("~p temporarily disconnected from ~s:~p",
-              [ConnPid, ?DISCORD_HOST, ?DISCORD_PORT]),
+              [ConnPid, ?COMICVINE_HOST, ?COMICVINE_PORT]),
     {ok, Protocol} = gun:await_up(ConnPid),
     ?LOG_INFO("~p reconnected to ~s:~p with protocol ~p",
-              [ConnPid, ?DISCORD_HOST, ?DISCORD_PORT, Protocol]),
+              [ConnPid, ?COMICVINE_HOST, ?COMICVINE_PORT, Protocol]),
     {noreply, State};
 % TODO handle resending any failed streamrefs
 handle_info({gun_down, ConnPid, _Protocol, Err={error, _Error}, _StreamRefs=[]},
             _State) ->
     ?LOG_INFO("~p permanently disconnected from ~s:~p",
-              [ConnPid, ?DISCORD_HOST, ?DISCORD_PORT]),
+              [ConnPid, ?COMICVINE_HOST, ?COMICVINE_PORT]),
     throw(Err);
 handle_info({gun_response, ConnPid, StreamRef, Fin, Status, _Headers},
             State=#state{connection=#connection{pid=ConnPid},
                          requests=ActiveRequests}) ->
+    ?LOG_DEBUG("headers: ~p", [_Headers]),
     case {Fin, maps:get(StreamRef, ActiveRequests, undefined)} of
         {_Fin, undefined} ->
             ?LOG_ERROR("~p stream ref ~p matches no active requests",
@@ -143,14 +124,18 @@ handle_info({gun_data, ConnPid, StreamRef, Fin, Data},
     end.
 
 % helper functions
-
-api_call(Method, Resource) ->
-    {ok, Ref} = gen_server:call(?SERVER_NAME, {Method, Resource}),
+api_call(Method, Resource, QueryParams) ->
+    {ok, Ref} = gen_server:call(?SERVER_NAME, {Method, Resource, QueryParams}),
     await_response(Ref).
 
-api_call(Method, Resource, Body) ->
-    {ok, Ref} = gen_server:call(?SERVER_NAME, {Method, Resource, Body}),
-    await_response(Ref).
+build_body(Parts) ->
+    lists:foldl(fun(X, Acc) -> <<X/binary, Acc/binary>> end, <<>>, Parts).
+
+build_headers(State) ->
+    build_headers(State, []).
+
+build_headers(_State, Extra) ->
+    [{<<"user-agent">>, ?USER_AGENT}] ++ Extra.
 
 await_response(Ref) ->  await_response(Ref, ?DEFAULT_TIMEOUT).
 
@@ -161,30 +146,17 @@ await_response(Ref, Timeout) ->
         Timeout -> {error, timeout}
     end.
 
-build_headers(State) ->
-    build_headers(State, []).
+build_query_params(QueryParams) ->
+    Joiner = fun({Key, Val}, Acc) ->
+                     uri_string:quote(Key) ++ "=" ++ uri_string:quote(Val)
+                     ++ "&" ++ Acc
+             end,
+    "?" ++ lists:foldl(Joiner, "", QueryParams).
 
-build_headers(#state{configuration=Config}, Extra) ->
-    [{<<"user-agent">>, ?USER_AGENT},
-     {<<"accept">>, ?ACCEPT_STRING},
-     {<<"authorization">>, "Bot " ++ Config#configuration.bot_token}
-    ] ++ Extra.
+default_query_params(#state{configuration=#configuration{token=Token}}) ->
+    [{"api_key", Token},
+     {"format", ?DEFAULT_FORMAT}].
 
-post_headers() ->
-    [{<<"content-type">>, <<"application/json">>}].
-
-build_body(Parts) ->
-    lists:foldl(fun(X, Acc) -> <<X/binary, Acc/binary>> end, <<>>, Parts).
-
-build_url(String, Args) ->
-    lists:flatten(io_lib:format(String, Args)).
-
-post_api_call(Url, Body) ->
-    {ok, {Code, Reply}} = api_call(post, Url, Body),
-    if Code >= 200 andalso Code < 300 ->
-           case Reply of
-               no_data -> ok;
-               _ -> {ok, jsone:decode(Reply)}
-           end;
-       true -> {error, {invalid_code, Code, Reply}}
-    end.
+build_filter(Filters) ->
+    MapFn = fun({K, V}) -> K ++ ":" ++ V end,
+    {"filter", lists:flatten(lists:join(",", lists:map(MapFn, Filters)))}.
