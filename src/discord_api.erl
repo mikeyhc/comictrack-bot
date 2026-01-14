@@ -8,6 +8,7 @@
 -export([start_link/1]).
 -export([get_gateway_bot/0]).
 -export([register_command/2, interaction_callback/3]).
+-export([direct_message/2]).
 
 % gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
@@ -51,12 +52,22 @@ register_command(ApplicationId, Command) ->
     Url = build_url("/applications/~p/commands", [ApplicationId]),
     post_api_call(Url, jsone:encode(Command)).
 
--spec interaction_callback(iolist(), iolist(), #{}) -> {ok, #{}}.
+-spec interaction_callback(iolist(), iolist(), #{}) -> ok.
 interaction_callback(InteractionId, InteractionToken, Body) ->
     Url = build_url("/interactions/~s/~s/callback",
                     [InteractionId, InteractionToken]),
     ok = post_api_call(Url, jsone:encode(Body)),
     ok.
+
+-spec direct_message(iolist(), iolist()) -> {ok, #{}}.
+direct_message(UserId, Message) ->
+    Url = build_url("/users/@me/channels", []),
+    Body = #{<<"recipient_id">> => UserId},
+    {ok, Response} = post_api_call(Url, jsone:encode(Body)),
+    #{<<"id">> := ChannelId} = Response,
+    DmUrl = build_url("/channels/~s/messages", [ChannelId]),
+    DmBody = #{<<"content">> => Message},
+    post_api_call(DmUrl, jsone:encode(DmBody)).
 
 % gen_server callbacks
 init([BotToken]) ->

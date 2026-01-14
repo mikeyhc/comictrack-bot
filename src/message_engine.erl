@@ -41,7 +41,7 @@ handle_command(Cmd, _Options, _Member, IToken) ->
 handle_modal_reply(<<"volume_select_modal">>, [Select], Member, IToken) ->
     #{<<"component">> := #{<<"values">> := [StrVolumeId]}} = Select,
     VolumeId = binary_to_integer(StrVolumeId),
-    {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
+    {ok, Volume} = comic_repository:lookup_volume(#{id => VolumeId}),
     user_db:add_user_volume(member_to_user_id(Member), VolumeId),
     #{<<"name">> := VolumeName} = Volume,
     send_interaction_reply(<<"added \"", VolumeName/binary, "\"">>, IToken).
@@ -58,7 +58,7 @@ handle_volume_command(<<"add">>, Option, Member, IToken) ->
 
 handle_volume_add(VolumeName, Member, IToken) ->
     CleanName = clean_name(VolumeName),
-    case comic_repository:get_volume(#{name => CleanName}, false) of
+    case comic_repository:lookup_volume(#{name => CleanName}) of
         {ok, Volume} ->
             #{<<"name">> := ActualName, <<"id">> := VolumeId} = Volume,
             user_db:add_user_volume(member_to_user_id(Member), VolumeId),
@@ -123,13 +123,16 @@ volume_select_modal(Volumes, {InteractionId, InteractionToken}) ->
 
 build_volume_option(#{<<"name">> := Name,
                       <<"id">> := Id,
+                      <<"count_of_issues">> := IssueCount,
                       <<"start_year">> := StartYear}) ->
-    SafeName = if size(Name) > 90 ->
-                      Head = binary:part(Name, 0, 87),
+    SafeName = if size(Name) > 80 ->
+                      Head = binary:part(Name, 0, 77),
                       <<Head/binary, "...">>;
                   true -> Name
                end,
-    FullName = <<SafeName/binary, " (", StartYear/binary, ")">>,
+    BinCount = integer_to_binary(IssueCount),
+    FullName = <<SafeName/binary, " [", StartYear/binary, "] ",
+                 "(", BinCount/binary, " issues)">>,
     #{label => FullName,
       value => Id
      }.

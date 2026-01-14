@@ -3,7 +3,7 @@
 % Public API
 -export([install/1]).
 -export([store_volume/1, get_volumes/0, get_volume/1]).
--export([store_issue/1]).
+-export([store_issue/1, get_issues/0]).
 
 -define(MATCH_CUTOFF, 0.7).
 
@@ -69,9 +69,16 @@ store_issue(IssueResponse=#{<<"id">> := Id,
                              },
     mnesia:activity(transaction, fun() -> mnesia:write(Record) end).
 
+-spec get_issues() -> [#{}].
+get_issues() ->
+    lists:map(fun issue_response/1, get_all(comicvine_issue)).
+
 %% helper functions
 
 volume_response(#comicvine_volume{response=R, last_updated=LU}) ->
+    R#{'_last_updated' => LU}.
+
+issue_response(#comicvine_issue{response=R, last_updated=LU}) ->
     R#{'_last_updated' => LU}.
 
 get_volume_by_id(Id) ->
