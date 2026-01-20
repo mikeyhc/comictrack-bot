@@ -113,15 +113,16 @@ get_volume_by_name(Name) ->
 build_fuzzymatcher(Target) ->
     SearchName = string:casefold(Target),
     fun(Str) ->
-        case string:find(Str, SearchName) of
-            nomatch -> string:jaro_similarity(Str, SearchName) > ?MATCH_CUTOFF;
+        S = string:casefold(Str),
+        case string:find(S, SearchName) of
+            nomatch -> string:jaro_similarity(S, SearchName) > ?MATCH_CUTOFF;
             _Match -> true
         end
     end.
 
 get_volume_by_fuzzy_name(Name) ->
     Matcher = build_fuzzymatcher(Name),
-    case lists:filter(fun({#{<<"name">> := N}, _LU}) -> Matcher(N) end,
+    case lists:filter(fun(#{<<"name">> := N}) -> Matcher(N) end,
                       get_volumes()) of
         [] -> {error, not_found};
         [V] -> {ok, V};

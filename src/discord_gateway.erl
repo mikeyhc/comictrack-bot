@@ -151,7 +151,7 @@ connected(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
             ?LOG_DEBUG("received message: ~p", [Msg]),
             ?LOG_DEBUG("JSON message: ~s", [jsone:encode(Msg)]),
             message_engine:process(maps:get(<<"d">>, Msg)),
-            {keep_state, Data};
+            {keep_state, update_seq(Msg, Data)};
         ?RECONNECT_OP ->
             gen_statem:cast(self(), reconnect),
             gun:close(ConnPid),

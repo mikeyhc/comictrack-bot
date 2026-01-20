@@ -12,7 +12,7 @@ sync() ->
                         comicvine_updater:fetch_volume_from_api(VolumeId)
                 end,
                 user_db:get_all_volumes()),
-    ?LOG_INFO("fetched ~p volumes", length(Results)),
+    ?LOG_INFO("fetched ~p volumes", [length(Results)]),
     {Statuses, _Values} = lists:unzip(Results),
     true = lists:all(fun(V) -> V =:= ok end, Statuses),
     ?LOG_INFO("sync successful").
@@ -61,7 +61,7 @@ send_issue_list({UserId, Updates}) ->
              true -> build_new_issues_msg(Updates)
           end,
     ?LOG_INFO("sending ~p new issues for user @~s", [length(Updates), UserId]),
-    discord_api:direct_message(UserId, Msg).
+    {ok, _Resp} = discord_api:direct_message(UserId, Msg).
 
 build_new_issues_msg(Issues) ->
     lists:foldl(fun(X, Acc) -> <<Acc/binary, "\n* ", X/binary>> end,

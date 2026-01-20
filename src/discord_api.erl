@@ -7,7 +7,7 @@
 % Public API
 -export([start_link/1]).
 -export([get_gateway_bot/0]).
--export([register_command/2, interaction_callback/3]).
+-export([register_command/2, interaction_callback/3, interaction_update/4]).
 -export([direct_message/2]).
 
 % gen_server callbacks
@@ -49,7 +49,7 @@ get_gateway_bot() ->
 
 -spec register_command(non_neg_integer(), #{}) -> {ok, #{}}.
 register_command(ApplicationId, Command) ->
-    Url = build_url("/applications/~p/commands", [ApplicationId]),
+    Url = build_url("/applications/~s/commands", [ApplicationId]),
     post_api_call(Url, jsone:encode(Command)).
 
 -spec interaction_callback(iolist(), iolist(), #{}) -> ok.
@@ -57,6 +57,13 @@ interaction_callback(InteractionId, InteractionToken, Body) ->
     Url = build_url("/interactions/~s/~s/callback",
                     [InteractionId, InteractionToken]),
     ok = post_api_call(Url, jsone:encode(Body)),
+    ok.
+
+-spec interaction_update(iolist(), iolist(), iolist(), #{}) -> ok.
+interaction_update(ApplicationId, InteractionToken, MessageId, Body) ->
+    Url = build_url("/webhooks/~s/~s/messages/~s",
+                    [ApplicationId, InteractionToken, MessageId]),
+    ok = patch_api_call(Url, jsone:encode(Body)),
     ok.
 
 -spec direct_message(iolist(), iolist()) -> {ok, #{}}.
@@ -90,6 +97,16 @@ handle_call({post, Resource, Body}, {Pid, _Tags},
                          "/api/" ++ ?DISCORD_API_VERSION ++ Resource,
                          build_headers(State, post_headers()),
                          Body),
+    {reply, {ok, StreamRef},
+     State#state{requests=Reqs#{StreamRef => #request{pid=Pid}}}};
+handle_call({patch, Resource, Body}, {Pid, _Tags},
+            State=#state{connection=Conn, requests=Reqs}) ->
+    ?LOG_DEBUG("sending PATCH to ~p", [Resource]),
+    ?LOG_DEBUG("included body ~p", [Body]),
+    StreamRef = gun:patch(Conn#connection.pid,
+                          "/api/" ++ ?DISCORD_API_VERSION ++ Resource,
+                          build_headers(State, post_headers()),
+                          Body),
     {reply, {ok, StreamRef},
      State#state{requests=Reqs#{StreamRef => #request{pid=Pid}}}}.
 
@@ -193,6 +210,17 @@ build_url(String, Args) ->
 
 post_api_call(Url, Body) ->
     {ok, {Code, Reply}} = api_call(post, Url, Body),
+    ?LOG_DEBUG("~p recevied ~p", [Url, Code]),
+    if Code >= 200 andalso Code < 300 ->
+           case Reply of
+               no_data -> ok;
+               _ -> {ok, jsone:decode(Reply)}
+           end;
+       true -> {error, {invalid_code, Code, Reply}}
+    end.
+
+patch_api_call(Url, Body) ->
+    {ok, {Code, Reply}} = api_call(patch, Url, Body),
     ?LOG_DEBUG("~p recevied ~p", [Url, Code]),
     if Code >= 200 andalso Code < 300 ->
            case Reply of

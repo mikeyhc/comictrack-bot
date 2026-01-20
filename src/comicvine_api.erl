@@ -56,7 +56,9 @@ volume(VolumeId) ->
 
 -spec volumes([{string(), string()}]) -> {ok, #{}}.
 volumes(Filters) ->
-    {ok, {200, Body}} = api_call(get, "/volumes", [build_filter(Filters)]),
+    {ok, {200, Body}} = api_call(get, "/volumes", [build_filter(Filters),
+                                                   {"sort", "date_added:desc"}
+                                                  ]),
     Reply = jsone:decode(Body),
     #{<<"error">> := <<"OK">>} = Reply,
     {ok, Reply}.
