@@ -32,7 +32,8 @@ command_list() ->
 comictrack_command() ->
     command(<<"comictrack">>,
             <<"Commands related to comictrack">>,
-            [volume_subcommand_group()
+            [volume_subcommand_group(),
+             unread_subcommand()
             ]).
 
 %% volume commands
@@ -42,7 +43,8 @@ volume_subcommand_group() ->
                      <<"Volume releated commands">>,
                      [volume_add_subcommand(),
                       volume_get_subcommand(),
-                      volume_list_subcommand()
+                      volume_list_subcommand(),
+                      volume_read_subcommand()
                      ]).
 
 volume_add_subcommand() ->
@@ -61,10 +63,22 @@ volume_get_subcommand() ->
                              #{required => true})
                ]).
 
+volume_read_subcommand() ->
+    subcommand(<<"read">>,
+               <<"Mark issues as read">>,
+               [string_input(<<"name">>,
+                             <<"The volume to update">>,
+                             #{required => true})
+               ]).
+
 volume_list_subcommand() ->
     subcommand(<<"list">>,
                <<"View all tracked volumes">>).
 
+%% unread commands
+
+unread_subcommand() ->
+    subcommand(<<"unread">>, <<"View all unread issues">>).
 
 %% helper methods
 

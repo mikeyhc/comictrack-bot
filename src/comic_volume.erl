@@ -3,8 +3,6 @@
 -export([start_year_sort/2, name_sort/2]).
 -export([full_name/1, full_name/2]).
 
--include_lib("kernel/include/logger.hrl").
-
 start_year_sort(#{<<"start_year">> := A}, #{<<"start_year">> := B}) ->
     A > B.
 
