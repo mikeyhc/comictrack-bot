@@ -5,8 +5,6 @@
 -export([store_volume/1, get_volumes/0, get_volume/1]).
 -export([store_issue/1, get_issues/0]).
 
--define(MATCH_CUTOFF, 0.7).
-
 -record(comicvine_volume, {id :: non_neg_integer(),
                            name :: binary(),
                            response :: #{},
@@ -110,19 +108,8 @@ get_volume_by_name(Name) ->
         Response -> Response
     end.
 
-build_fuzzymatcher(Target) ->
-    SearchName = string:casefold(Target),
-    fun(Str) ->
-        S = string:casefold(Str),
-        case string:find(S, SearchName) of
-            nomatch -> string:jaro_similarity(S, SearchName) > ?MATCH_CUTOFF;
-            _Match -> true
-        end
-    end.
-
 get_volume_by_fuzzy_name(Name) ->
-    Matcher = build_fuzzymatcher(Name),
-    case lists:filter(fun(#{<<"name">> := N}) -> Matcher(N) end,
+    case lists:filter(comic_volume:name_fuzzymatcher(Name),
                       get_volumes()) of
         [] -> {error, not_found};
         [V] -> {ok, V};

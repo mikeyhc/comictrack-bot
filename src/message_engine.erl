@@ -128,12 +128,12 @@ handle_volume_command(<<"add">>, Option, Member, IToken) ->
             handle_volume_add(VolumeName, Member, IToken);
         _ -> send_interaction_reply(<<"requires a volume to add!">>, IToken)
     end;
-handle_volume_command(<<"get">>, Option, _Member, IToken) ->
+handle_volume_command(<<"get">>, Option, Member, IToken) ->
     #{<<"options">> := Arguments} = Option,
     case Arguments of
         [#{<<"name">> := <<"name">>,
            <<"value">> := VolumeName}] ->
-            handle_volume_get(VolumeName, IToken);
+            handle_volume_get(VolumeName, Member, IToken);
         _ -> send_interaction_reply(<<"requires a volume to get!">>, IToken)
     end;
 handle_volume_command(<<"list">>, _Option, Member, IToken) ->
@@ -172,45 +172,53 @@ handle_volume_add(VolumeName, Member, IToken) ->
             send_interaction_reply(<<"an unexpected error occurred">>, IToken)
     end.
 
-handle_volume_get(VolumeName, IToken) ->
+handle_volume_get(VolumeName, Member, IToken) ->
     CleanName = clean_name(VolumeName),
-    % TODO this needs to check that is actually tacked by the user
-    case comic_repository:get_volume(#{name => CleanName}) of
-        {ok, _Volume} ->
+    UserId = member_to_user_id(Member),
+    {_Oks, UserVolumes} = lists:unzip(
+                            lists:map(
+                              fun(V) ->
+                                      comic_repository:get_volume(#{id => V})
+                              end,
+                              user_db:get_user_volumes(UserId))),
+    case lists:filter(comic_volume:name_fuzzymatcher(CleanName), UserVolumes) of
+        [] ->
+            send_interaction_reply(
+              <<"could not find volume \"", CleanName/binary, "\"">>,
+              IToken);
+        [_Volume] ->
             send_interaction_reply(<<"found ", CleanName/binary>>, IToken);
-        {error, {multiple_results, Volumes}} ->
+        Volumes ->
             Subset = lists:sublist(lists:sort(
                                      fun comic_volume:start_year_sort/2,
                                      Volumes),
                                    ?MAX_SELECT_ELEMENTS),
-            volume_select_modal(<<"get">>, Subset, IToken);
-        {error, not_found} ->
-            send_interaction_reply(
-              <<"could not find volume \"", CleanName/binary, "\"">>,
-              IToken);
-        {error, Err} -> ?LOG_ERROR("volume add error: ~p", [Err]),
-            send_interaction_reply(<<"an unexpected error occurred">>, IToken)
+            volume_select_modal(<<"get">>, Subset, IToken)
     end.
 
 handle_volume_read(VolumeName, Member, IToken) ->
     CleanName = clean_name(VolumeName),
-    % TODO: this needs to check that is actually tracked by the user
-    case comic_repository:get_volume(#{name => CleanName}) of
-        {ok, Volume} ->
+    UserId = member_to_user_id(Member),
+    {_Oks, UserVolumes} = lists:unzip(
+                            lists:map(
+                              fun(V) ->
+                                      comic_repository:get_volume(#{id => V})
+                              end,
+                              user_db:get_user_volumes(UserId))),
+    case lists:filter(comic_volume:name_fuzzymatcher(CleanName), UserVolumes) of
+        [] ->
+            send_interaction_reply(
+              <<"could not find volume \"", CleanName/binary, "\"">>,
+              IToken);
+        [Volume] ->
             VolumeRead = generate_volume_read(Volume, Member),
             send_interaction_reply_components(VolumeRead, IToken);
-        {error, {multiple_results, Volumes}} ->
+        Volumes ->
             Subset = lists:sublist(lists:sort(
                                      fun comic_volume:start_year_sort/2,
                                      Volumes),
                                    ?MAX_SELECT_ELEMENTS),
-            volume_select_modal(<<"read">>, Subset, IToken);
-        {error, not_found} ->
-            send_interaction_reply(
-              <<"could not find volume \"", CleanName/binary, "\"">>,
-              IToken);
-        {error, Err} -> ?LOG_ERROR("volume add error: ~p", [Err]),
-            send_interaction_reply(<<"an unexpected error occurred">>, IToken)
+            volume_select_modal(<<"read">>, Subset, IToken)
     end.
 
 handle_volume_list(Member, IToken) ->
