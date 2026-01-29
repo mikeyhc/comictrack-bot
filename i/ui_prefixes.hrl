@@ -1,0 +1,5 @@
+-define(VOLUME_PAGE_PREFIX, "vp_").
+-define(ISSUE_PAGE_PREFIX, "ip_").
+-define(ISSUE_READ_PAGE_PREFIX, "irp_").
+-define(ISSUE_READ_PREFIX, "ir_").
+-define(VOLUME_VIEW_PAGE_PREFIX, "vvp_").

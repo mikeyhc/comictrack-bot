@@ -1,4 +1,6 @@
 -module(message_engine).
+
+-include("ui_prefixes.hrl").
 -include_lib("kernel/include/logger.hrl").
 
 -export([process/1]).
@@ -82,8 +84,8 @@ handle_modal_reply(<<"volume_select_modal_get">>, [Select], Member, IToken) ->
     {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
     UserIssueIds = user_db:get_user_issues(member_to_user_id(Member)),
     #{VolumeId := ReadIssues} = UserIssueIds,
-    VolumeComponent = render_volume(Volume, ReadIssues),
-    send_interaction_reply(VolumeComponent, IToken);
+    VolumeComponent = comictrack_ui:volume_view(Volume, ReadIssues, 1),
+    send_interaction_reply_components(VolumeComponent, IToken);
 handle_modal_reply(<<"volume_select_modal_read_", AllBinary/binary>>, [Select],
                    Member, IToken) ->
     #{<<"component">> := #{<<"values">> := [StrVolumeId]}} = Select,
@@ -108,23 +110,36 @@ handle_modal_reply(<<"volume_select_modal_read_", AllBinary/binary>>, [Select],
            send_interaction_reply_components(VolumeRead, IToken)
     end.
 
-handle_button_press(<<"vp_", PageBin/binary>>, _Message, Member, IToken) ->
+handle_button_press(<<?VOLUME_PAGE_PREFIX, PageBin/binary>>,
+                    _Message, Member, IToken) ->
     Page = binary_to_integer(PageBin),
     VolumeIds = user_db:get_user_volumes(member_to_user_id(Member)),
-    VolumeList = generate_volume_list(VolumeIds, Page),
+    VolumeList = discord_ui:volume_list(ids_to_volumes(VolumeIds), Page),
     send_interaction_update(VolumeList, IToken);
-handle_button_press(<<"ip_", PageBin/binary>>, _Message, Member, IToken) ->
+handle_button_press(<<?VOLUME_VIEW_PAGE_PREFIX, Rest/binary>>,
+                    _Message, Member, IToken) ->
+    [VolumeIdBin, PageBin] = string:split(Rest, <<"_">>),
+    VolumeId = binary_to_integer(VolumeIdBin),
+    Page = binary_to_integer(PageBin),
+    {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
+    UserIssueIds = user_db:get_user_issues(member_to_user_id(Member)),
+    #{VolumeId := ReadIssues} = UserIssueIds,
+    VolumeComponent = comictrack_ui:volume_view(Volume, ReadIssues, Page),
+    send_interaction_update(VolumeComponent, IToken);
+handle_button_press(<<?ISSUE_PAGE_PREFIX, PageBin/binary>>,
+                    _Message, Member, IToken) ->
     Page = binary_to_integer(PageBin),
     UserId = member_to_user_id(Member),
     VolumeIds = user_db:get_user_volumes(UserId),
     UserIssueIds = user_db:get_user_issues(UserId),
     UnreadList = build_unread_issue_list(VolumeIds, UserIssueIds),
     Sorted = lists:sort(fun comic_issue:volume_name_sort/2, UnreadList),
-    IssueList = generate_issue_list(Sorted, Page),
+    IssueList = comictrack_ui:unread_issue_list(Sorted, Page),
     send_interaction_update(IssueList, IToken);
-handle_button_press(<<"irp_", Rest/binary>>, _Message, Member, IToken) ->
+handle_button_press(<<?ISSUE_READ_PAGE_PREFIX, Rest/binary>>,
+                    _Message, Member, IToken) ->
     case Rest of
-        <<$v, Rest0/binary>> ->
+        <<"v", Rest0/binary>> ->
             [VolumeIdBin, PageBin] = string:split(Rest0, <<"_">>),
             VolumeId = binary_to_integer(VolumeIdBin),
             Page = binary_to_integer(PageBin),
@@ -138,12 +153,13 @@ handle_button_press(<<"irp_", Rest/binary>>, _Message, Member, IToken) ->
             UserIssueIds = user_db:get_user_issues(UserId),
             UnreadList = build_unread_issue_list(VolumeIds, UserIssueIds),
             Sorted = lists:sort(fun comic_issue:volume_name_sort/2, UnreadList),
-            UnreadReply = discord_ui:read_select(<<"u">>, Sorted, sets:new(),
-                                                 Page),
+            UnreadReply = comictrack_ui:read_select(<<"u_">>, Sorted,
+                                                    sets:new(), Page),
             send_interaction_update(UnreadReply, IToken)
     end.
 
-handle_string_select(<<"ir_", Rest/binary>>, [Value], Member, IToken) ->
+handle_string_select(<<?ISSUE_READ_PREFIX, Rest/binary>>,
+                     [Value], Member, IToken) ->
     [VolumeIdBin, IssueIdBin] = string:split(Rest, <<"_">>),
     UserId = member_to_user_id(Member),
     VolumeId = binary_to_integer(VolumeIdBin),
@@ -228,16 +244,16 @@ handle_volume_get(VolumeName, Member, IToken) ->
         [Volume=#{<<"id">> := VolumeId}] ->
             UserIssueIds = user_db:get_user_issues(member_to_user_id(Member)),
             #{VolumeId := ReadIssues} = UserIssueIds,
-            VolumeComponent = render_volume(Volume, ReadIssues),
-            send_interaction_reply(VolumeComponent, IToken);
+            VolumeComponent = comictrack_ui:volume_view(Volume, ReadIssues, 1),
+            send_interaction_reply_components(VolumeComponent, IToken);
         Volumes ->
             case exact_match_volume(CleanName, Volumes) of
                 [Volume=#{<<"id">> := VolumeId}] ->
                     UserIssueIds = user_db:get_user_issues(
                                      member_to_user_id(Member)),
                     #{VolumeId := ReadIssues} = UserIssueIds,
-                    VolumeComponent = render_volume(Volume, ReadIssues),
-                    send_interaction_reply(VolumeComponent, IToken);
+                    VolumeComponent = comictrack_ui:volume_view(Volume, ReadIssues, 1),
+                    send_interaction_reply_components(VolumeComponent, IToken);
                 _ ->
                     Subset = lists:sublist(lists:sort(
                                              fun comic_volume:start_year_sort/2,
@@ -298,7 +314,8 @@ handle_volume_list(Member, Page, IToken) ->
             send_interaction_reply(<<"you aren't tracking any volumes :(">>,
                                    IToken);
         _ ->
-            VolumeList = generate_volume_list(VolumeIds, Page),
+            Volumes = ids_to_volumes(VolumeIds),
+            VolumeList = comictrack_ui:volume_list(Volumes, Page),
             send_interaction_reply_components(VolumeList, IToken)
     end.
 
@@ -313,7 +330,7 @@ handle_unread_issue_list(Member, IToken) ->
             UserIssueIds = user_db:get_user_issues(UserId),
             UnreadList = build_unread_issue_list(VolumeIds, UserIssueIds),
             Sorted = lists:sort(fun comic_issue:volume_name_sort/2, UnreadList),
-            IssueList = generate_issue_list(Sorted, 1),
+            IssueList = comictrack_ui:unread_issue_list(Sorted, 1),
             send_interaction_reply_components(IssueList, IToken)
     end.
 
@@ -328,7 +345,7 @@ handle_unread_read_list(Member, IToken) ->
             UserIssueIds = user_db:get_user_issues(UserId),
             UnreadList = build_unread_issue_list(VolumeIds, UserIssueIds),
             Sorted = lists:sort(fun comic_issue:volume_name_sort/2, UnreadList),
-            Reply = discord_ui:read_select(<<"u">>, Sorted, sets:new(), 1),
+            Reply = comictrack_ui:read_select(<<"u_">>, Sorted, sets:new(), 1),
             send_interaction_reply_components(Reply, IToken)
     end.
 
@@ -344,8 +361,8 @@ generate_volume_read(V=#{<<"id">> := VolumeId,
             UserIssueIds = user_db:get_user_issues(member_to_user_id(Member)),
             BinVolId = integer_to_binary(VolumeId),
             Sorted = lists:sort(fun comic_issue:issue_number_sort/2, Issues),
-            ReadSelect = discord_ui:read_select(
-                           <<"v", BinVolId/binary>>,
+            ReadSelect = comictrack_ui:read_select(
+                           <<"v", BinVolId/binary, "_">>,
                            lists:map(fun(I) -> decorate_with_volume(I, V) end,
                                      Sorted),
                            maps:get(VolumeId, UserIssueIds, sets:new()),
@@ -359,81 +376,6 @@ generate_volume_read(V=#{<<"id">> := VolumeId,
                 }
               ] ++ ReadSelect.
 
-generate_volume_list(VolumeIds, Page) ->
-    Lookup = fun(VolumeId) ->
-                     {ok, V} = comic_repository:get_volume(#{id => VolumeId}),
-                     V
-             end,
-    Volumes = lists:sort(fun comic_volume:name_sort/2,
-                         lists:map(Lookup, VolumeIds)),
-    Truncated = lists:sublist(Volumes, (Page - 1) * ?MAX_RESULTS + 1,
-                              ?MAX_RESULTS),
-    VolumeBinary = build_volumes_binary(Truncated),
-    VolumeContent = <<"You are tracking the following volumes:\n",
-                      VolumeBinary/binary>>,
-    Reply0 = [
-              #{type => 10,
-                content => VolumeContent
-               }
-             ],
-    if length(Volumes) > ?MAX_RESULTS ->
-           Reply0 ++ discord_ui:page_controls(<<"vp">>, Page,
-                                              count_pages(Volumes));
-       true -> Reply0
-    end.
-
-generate_issue_list(Issues, Page) ->
-    Truncated = lists:sublist(Issues, (Page - 1) * ?MAX_RESULTS + 1,
-                              ?MAX_RESULTS),
-    IssueBinary = build_issue_binary(Truncated),
-    IssueContent = <<"The following issues are unread:\n",
-                     IssueBinary/binary>>,
-    Reply0 = [
-              #{type => 10,
-                content => IssueContent
-               }
-             ],
-    if length(Issues) > ?MAX_RESULTS ->
-           Reply0 ++ discord_ui:page_controls(<<"ip">>, Page,
-                                              count_pages(Issues));
-       true -> Reply0
-    end.
-
-render_volume(#{<<"name">> := Name,
-                <<"id">> := VolumeId,
-                <<"issues">> := Issues,
-                <<"start_year">> := StartYear
-               },
-             ReadIssues) ->
-    VolumeIdBin = integer_to_binary(VolumeId),
-    StartYearBin = if StartYear =/= null ->
-                          <<" [", StartYear/binary, "]">>;
-                      true ->
-                          <<>>
-                   end,
-    Header = <<Name/binary, StartYearBin/binary, " (",
-               VolumeIdBin/binary, ")\n">>,
-    RenderIssue = fun(#{<<"issue_number">> := IssueNumber,
-                        <<"name">> := IssueName,
-                        <<"id">> := IssueId
-                       }) ->
-                          Base = <<Name/binary, " #", IssueNumber/binary>>,
-                          Named = if IssueName =/= null ->
-                                         <<Base/binary, ": ",
-                                           IssueName/binary>>;
-                                     true -> Base
-                                  end,
-                          case sets:is_element(IssueId, ReadIssues) of
-                              true -> <<Named/binary, "   :closed_book:">>;
-                              false -> <<Named/binary, "   :book:">>
-                          end
-                  end,
-    lists:foldl(fun(I, Acc) ->
-                        IssueBin = RenderIssue(I),
-                        <<Acc/binary, "* ", IssueBin/binary, "\n">>
-                end,
-                Header, lists:sort(fun comic_issue:issue_number_sort/2,
-                                   Issues)).
 
 
 build_unread_issue_list(VolumeIds, IssueIds) ->
@@ -474,9 +416,6 @@ decorate_with_volume(Issue, #{<<"id">> := Id,
                              <<"name">> => Name,
                              <<"start_year">> => StartYear
                             }}.
-
-count_pages(Input) ->
-    round(math:ceil(length(Input) / ?MAX_RESULTS)).
 
 member_to_user_id(#{<<"user">> := #{<<"id">> := UserId}}) -> UserId.
 
@@ -541,26 +480,19 @@ volume_select_reply(Id, Volumes,
     discord_api:interaction_callback(
       InteractionId,
       InteractionToken,
-      discord_ui:volume_select_modal(Id, Volumes)
+      comictrack_ui:volume_select_modal(Id, Volumes)
      ).
 
 exact_match_volume(Name, Volumes) ->
     Fun = fun(#{<<"name">> := N}) -> N =:= Name end,
     lists:filter(Fun, Volumes).
 
-build_volumes_binary(Volumes) ->
-    Fun = fun(Volume, Acc) ->
-                  Name = comic_volume:full_name(Volume),
-                  <<Acc/binary, "* ", Name/binary, "\n">>
-          end,
-    lists:foldl(Fun, <<>>, Volumes).
-
-build_issue_binary(Issues) ->
-    Fun = fun(Issue, Acc) ->
-                  Name = comic_issue:full_name(Issue),
-                  <<Acc/binary, "* ", Name/binary, "\n">>
-          end,
-    lists:foldl(Fun, <<>>, Issues).
+ids_to_volumes(VolumeIds) ->
+    Lookup = fun(VolumeId) ->
+                     {ok, V} = comic_repository:get_volume(#{id => VolumeId}),
+                     V
+             end,
+    lists:sort(fun comic_volume:name_sort/2, lists:map(Lookup, VolumeIds)).
 
 clean_name(Name) ->
     lists:foldl(fun(Fn, Acc) -> Fn(Acc) end,
