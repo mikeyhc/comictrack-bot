@@ -8,6 +8,7 @@
 -define(SUBCOMMAND_GROUP_TYPE, 2).
 -define(STRING_INPUT_TYPE, 3).
 -define(INTEGER_INPUT_TYPE, 4).
+-define(BOOLEAN_INPUT_TYPE, 5).
 
 install(ApplicationId, BotToken) ->
     application:ensure_all_started(gun),
@@ -33,7 +34,7 @@ comictrack_command() ->
     command(<<"comictrack">>,
             <<"Commands related to comictrack">>,
             [volume_subcommand_group(),
-             unread_subcommand()
+             unread_subcommand_group()
             ]).
 
 %% volume commands
@@ -68,7 +69,9 @@ volume_read_subcommand() ->
                <<"Mark issues as read">>,
                [string_input(<<"name">>,
                              <<"The volume to update">>,
-                             #{required => true})
+                             #{required => true}),
+                boolean_input(<<"all">>,
+                              <<"Mark all issues as read">>)
                ]).
 
 volume_list_subcommand() ->
@@ -77,8 +80,18 @@ volume_list_subcommand() ->
 
 %% unread commands
 
-unread_subcommand() ->
-    subcommand(<<"unread">>, <<"View all unread issues">>).
+unread_subcommand_group() ->
+    subcommand_group(<<"unread">>,
+                     <<"Unread issue related commands">>,
+                     [unread_list_subcommand(),
+                      unread_read_subcomand()
+                     ]).
+
+unread_list_subcommand() ->
+    subcommand(<<"list">>, <<"View all unread issues">>).
+
+unread_read_subcomand() ->
+    subcommand(<<"read">>, <<"Mark issues as read">>).
 
 %% helper methods
 
@@ -110,6 +123,12 @@ subcommand(Name, Description, Options) ->
 
 string_input(Name, Description, Options) ->
     build_input(?STRING_INPUT_TYPE, Name, Description, Options).
+
+boolean_input(Name, Description) ->
+    boolean_input(Name, Description, #{}).
+
+boolean_input(Name, Description, Options) ->
+    build_input(?BOOLEAN_INPUT_TYPE,  Name, Description, Options).
 
 build_input(Type, Name, Description, Options) ->
     Required = maps:get(required, Options, false),

@@ -15,10 +15,8 @@
 -define(INTERACTION_REPLY, 4).
 -define(DEFERRED_UPDATE_MESSAGE, 6).
 -define(UPDATE_MESSAGE, 7).
--define(MODAL_REPLY, 9).
 
 -define(MAX_SELECT_ELEMENTS, 20).
--define(NAME_OPTION_LENGTH, 50).
 -define(MAX_RESULTS, 10).
 
 process(D=#{<<"id">> := InteractionId,
@@ -60,7 +58,10 @@ handle_command(<<"comictrack">>, [Option], Member, IToken) ->
             #{<<"options">> := [SubCommand]} = Option,
             #{<<"name">> := SubCommandName} = SubCommand,
             handle_volume_command(SubCommandName, SubCommand, Member, IToken);
-        <<"unread">> -> handle_unread_command(Member, IToken);
+        <<"unread">> ->
+            #{<<"options">> := [SubCommand]} = Option,
+            #{<<"name">> := SubCommandName} = SubCommand,
+            handle_unread_command(SubCommandName, SubCommand, Member, IToken);
         OptionName ->
             send_interaction_reply(<<"unknown command: ", OptionName/binary>>,
                                    IToken)
@@ -75,18 +76,37 @@ handle_modal_reply(<<"volume_select_modal_add">>, [Select], Member, IToken) ->
     user_db:add_user_volume(member_to_user_id(Member), VolumeId),
     #{<<"name">> := VolumeName} = Volume,
     send_interaction_reply(<<"added \"", VolumeName/binary, "\"">>, IToken);
-handle_modal_reply(<<"volume_select_modal_get">>, [Select], _Member, IToken) ->
+handle_modal_reply(<<"volume_select_modal_get">>, [Select], Member, IToken) ->
     #{<<"component">> := #{<<"values">> := [StrVolumeId]}} = Select,
     VolumeId = binary_to_integer(StrVolumeId),
     {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
-    #{<<"name">> := VolumeName} = Volume,
-    send_interaction_reply(<<"found ", VolumeName/binary>>, IToken);
-handle_modal_reply(<<"volume_select_modal_read">>, [Select], Member, IToken) ->
+    UserIssueIds = user_db:get_user_issues(member_to_user_id(Member)),
+    #{VolumeId := ReadIssues} = UserIssueIds,
+    VolumeComponent = render_volume(Volume, ReadIssues),
+    send_interaction_reply(VolumeComponent, IToken);
+handle_modal_reply(<<"volume_select_modal_read_", AllBinary/binary>>, [Select],
+                   Member, IToken) ->
     #{<<"component">> := #{<<"values">> := [StrVolumeId]}} = Select,
     VolumeId = binary_to_integer(StrVolumeId),
+    ReadAll = if AllBinary =:= <<"true">> -> true; true -> false end,
     {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
-    VolumeRead = generate_volume_read(Volume, Member),
-    send_interaction_reply_components(VolumeRead, IToken).
+    if ReadAll ->
+           #{<<"name">> := ActualName,
+             <<"issues">> := Issues,
+             <<"id">> := VolumeId} = Volume,
+           UserId = member_to_user_id(Member),
+           lists:foreach(
+             fun(#{<<"id">> := IssueId}) ->
+                     user_db:add_user_issue(UserId, VolumeId, IssueId)
+             end,
+             Issues),
+           send_interaction_reply(<<"Marked all issues of \"",
+                                    ActualName/binary, "\" as read">>,
+                                  IToken);
+       true ->
+           VolumeRead = generate_volume_read(Volume, Member),
+           send_interaction_reply_components(VolumeRead, IToken)
+    end.
 
 handle_button_press(<<"vp_", PageBin/binary>>, _Message, Member, IToken) ->
     Page = binary_to_integer(PageBin),
@@ -99,15 +119,29 @@ handle_button_press(<<"ip_", PageBin/binary>>, _Message, Member, IToken) ->
     VolumeIds = user_db:get_user_volumes(UserId),
     UserIssueIds = user_db:get_user_issues(UserId),
     UnreadList = build_unread_issue_list(VolumeIds, UserIssueIds),
-    IssueList = generate_issue_list(UnreadList, Page),
+    Sorted = lists:sort(fun comic_issue:volume_name_sort/2, UnreadList),
+    IssueList = generate_issue_list(Sorted, Page),
     send_interaction_update(IssueList, IToken);
 handle_button_press(<<"irp_", Rest/binary>>, _Message, Member, IToken) ->
-    [VolumeIdBin, PageBin] = string:split(Rest, <<"_">>),
-    VolumeId = binary_to_integer(VolumeIdBin),
-    Page = binary_to_integer(PageBin),
-    {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
-    VolumeRead = generate_volume_read(Volume, Member, Page),
-    send_interaction_update(VolumeRead, IToken).
+    case Rest of
+        <<$v, Rest0/binary>> ->
+            [VolumeIdBin, PageBin] = string:split(Rest0, <<"_">>),
+            VolumeId = binary_to_integer(VolumeIdBin),
+            Page = binary_to_integer(PageBin),
+            {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
+            VolumeRead = generate_volume_read(Volume, Member, Page),
+            send_interaction_update(VolumeRead, IToken);
+        <<"u_", PageBin/binary>> ->
+            UserId = member_to_user_id(Member),
+            Page = binary_to_integer(PageBin),
+            VolumeIds = user_db:get_user_volumes(UserId),
+            UserIssueIds = user_db:get_user_issues(UserId),
+            UnreadList = build_unread_issue_list(VolumeIds, UserIssueIds),
+            Sorted = lists:sort(fun comic_issue:volume_name_sort/2, UnreadList),
+            UnreadReply = discord_ui:read_select(<<"u">>, Sorted, sets:new(),
+                                                 Page),
+            send_interaction_update(UnreadReply, IToken)
+    end.
 
 handle_string_select(<<"ir_", Rest/binary>>, [Value], Member, IToken) ->
     [VolumeIdBin, IssueIdBin] = string:split(Rest, <<"_">>),
@@ -139,22 +173,27 @@ handle_volume_command(<<"get">>, Option, Member, IToken) ->
 handle_volume_command(<<"list">>, _Option, Member, IToken) ->
     handle_volume_list(Member, IToken);
 handle_volume_command(<<"read">>, Option, Member, IToken) ->
-    #{<<"options">> := Arguments} = Option,
+    #{<<"options">> := ArgList} = Option,
+    Arguments = lists:foldl(fun(A=#{<<"name">> := N}, Acc) -> Acc#{N => A} end,
+                            #{}, ArgList),
     case Arguments of
-        [#{<<"name">> := <<"name">>,
-           <<"value">> := VolumeName}] ->
-            handle_volume_read(VolumeName, Member, IToken);
+        #{<<"name">> := #{<<"value">> := VolumeName}} ->
+            ?LOG_INFO("Args: ~p", [Arguments]),
+            #{<<"value">> := All} = maps:get(<<"all">>, Arguments,
+                                             #{<<"value">> => false}),
+            handle_volume_read(VolumeName, All, Member, IToken);
         _ -> send_interaction_reply(<<"requires a volume to read!">>, IToken)
     end.
 
-handle_unread_command(Member, IToken) ->
-    handle_unread_issue_list(Member, IToken).
+handle_unread_command(<<"list">>, _Option, Member, IToken) ->
+    handle_unread_issue_list(Member, IToken);
+handle_unread_command(<<"read">>, _Option, Member, IToken) ->
+    handle_unread_read_list(Member, IToken).
 
 handle_volume_add(VolumeName, Member, IToken) ->
     CleanName = clean_name(VolumeName),
     case comic_repository:lookup_volume(#{name => CleanName}) of
-        {ok, Volume} ->
-            #{<<"name">> := ActualName, <<"id">> := VolumeId} = Volume,
+        {ok, Volume} -> #{<<"name">> := ActualName, <<"id">> := VolumeId} = Volume,
             user_db:add_user_volume(member_to_user_id(Member), VolumeId),
             send_interaction_reply(<<"added \"", ActualName/binary, "\"">>,
                                    IToken);
@@ -163,7 +202,7 @@ handle_volume_add(VolumeName, Member, IToken) ->
                                      fun comic_volume:start_year_sort/2,
                                      Volumes),
                                    ?MAX_SELECT_ELEMENTS),
-            volume_select_modal(<<"add">>, Subset, IToken);
+            volume_select_reply(<<"add">>, Subset, IToken);
         {error, not_found} ->
             send_interaction_reply(
               <<"could not find volume \"", CleanName/binary, "\"">>,
@@ -186,17 +225,29 @@ handle_volume_get(VolumeName, Member, IToken) ->
             send_interaction_reply(
               <<"could not find volume \"", CleanName/binary, "\"">>,
               IToken);
-        [_Volume] ->
-            send_interaction_reply(<<"found ", CleanName/binary>>, IToken);
+        [Volume=#{<<"id">> := VolumeId}] ->
+            UserIssueIds = user_db:get_user_issues(member_to_user_id(Member)),
+            #{VolumeId := ReadIssues} = UserIssueIds,
+            VolumeComponent = render_volume(Volume, ReadIssues),
+            send_interaction_reply(VolumeComponent, IToken);
         Volumes ->
-            Subset = lists:sublist(lists:sort(
-                                     fun comic_volume:start_year_sort/2,
-                                     Volumes),
-                                   ?MAX_SELECT_ELEMENTS),
-            volume_select_modal(<<"get">>, Subset, IToken)
+            case exact_match_volume(CleanName, Volumes) of
+                [Volume=#{<<"id">> := VolumeId}] ->
+                    UserIssueIds = user_db:get_user_issues(
+                                     member_to_user_id(Member)),
+                    #{VolumeId := ReadIssues} = UserIssueIds,
+                    VolumeComponent = render_volume(Volume, ReadIssues),
+                    send_interaction_reply(VolumeComponent, IToken);
+                _ ->
+                    Subset = lists:sublist(lists:sort(
+                                             fun comic_volume:start_year_sort/2,
+                                             Volumes),
+                                           ?MAX_SELECT_ELEMENTS),
+                    volume_select_reply(<<"get">>, Subset, IToken)
+            end
     end.
 
-handle_volume_read(VolumeName, Member, IToken) ->
+handle_volume_read(VolumeName, ReadAll, Member, IToken) ->
     CleanName = clean_name(VolumeName),
     UserId = member_to_user_id(Member),
     {_Oks, UserVolumes} = lists:unzip(
@@ -211,14 +262,30 @@ handle_volume_read(VolumeName, Member, IToken) ->
               <<"could not find volume \"", CleanName/binary, "\"">>,
               IToken);
         [Volume] ->
-            VolumeRead = generate_volume_read(Volume, Member),
-            send_interaction_reply_components(VolumeRead, IToken);
+            if ReadAll ->
+                   #{<<"name">> := ActualName,
+                     <<"issues">> := Issues,
+                     <<"id">> := VolumeId} = Volume,
+
+                   lists:foreach(
+                     fun(#{<<"id">> := IssueId}) ->
+                             user_db:add_user_issue(UserId, VolumeId, IssueId)
+                     end,
+                     Issues),
+                   send_interaction_reply(<<"Marked all issues of \"",
+                                            ActualName/binary, "\" as read">>,
+                                          IToken);
+               true ->
+                   VolumeRead = generate_volume_read(Volume, Member),
+                   send_interaction_reply_components(VolumeRead, IToken)
+            end;
         Volumes ->
             Subset = lists:sublist(lists:sort(
                                      fun comic_volume:start_year_sort/2,
                                      Volumes),
                                    ?MAX_SELECT_ELEMENTS),
-            volume_select_modal(<<"read">>, Subset, IToken)
+            ReadAllBool = if ReadAll -> <<"true">>; true -> <<"false">> end,
+            volume_select_reply(<<"read_", ReadAllBool/binary>>, Subset, IToken)
     end.
 
 handle_volume_list(Member, IToken) ->
@@ -245,8 +312,24 @@ handle_unread_issue_list(Member, IToken) ->
         _ ->
             UserIssueIds = user_db:get_user_issues(UserId),
             UnreadList = build_unread_issue_list(VolumeIds, UserIssueIds),
-            IssueList = generate_issue_list(UnreadList, 1),
+            Sorted = lists:sort(fun comic_issue:volume_name_sort/2, UnreadList),
+            IssueList = generate_issue_list(Sorted, 1),
             send_interaction_reply_components(IssueList, IToken)
+    end.
+
+handle_unread_read_list(Member, IToken) ->
+    UserId = member_to_user_id(Member),
+    VolumeIds = user_db:get_user_volumes(UserId),
+    case VolumeIds of
+        [] ->
+            send_interaction_reply(<<"you aren't tracking any volumes :(">>,
+                                   IToken);
+        _ ->
+            UserIssueIds = user_db:get_user_issues(UserId),
+            UnreadList = build_unread_issue_list(VolumeIds, UserIssueIds),
+            Sorted = lists:sort(fun comic_issue:volume_name_sort/2, UnreadList),
+            Reply = discord_ui:read_select(<<"u">>, Sorted, sets:new(), 1),
+            send_interaction_reply_components(Reply, IToken)
     end.
 
 generate_volume_read(Volume, Member) ->
@@ -259,10 +342,12 @@ generate_volume_read(V=#{<<"id">> := VolumeId,
                     Member,
                     Page) ->
             UserIssueIds = user_db:get_user_issues(member_to_user_id(Member)),
-            ReadSelect = build_read_select(
-                           VolumeId,
+            BinVolId = integer_to_binary(VolumeId),
+            Sorted = lists:sort(fun comic_issue:issue_number_sort/2, Issues),
+            ReadSelect = discord_ui:read_select(
+                           <<"v", BinVolId/binary>>,
                            lists:map(fun(I) -> decorate_with_volume(I, V) end,
-                                     Issues),
+                                     Sorted),
                            maps:get(VolumeId, UserIssueIds, sets:new()),
                            Page),
             StartYearBin = if StartYear =:= null -> <<"">>;
@@ -292,7 +377,8 @@ generate_volume_list(VolumeIds, Page) ->
                }
              ],
     if length(Volumes) > ?MAX_RESULTS ->
-           Reply0 ++ page_controls(<<"vp">>, Page, count_pages(Volumes));
+           Reply0 ++ discord_ui:page_controls(<<"vp">>, Page,
+                                              count_pages(Volumes));
        true -> Reply0
     end.
 
@@ -308,35 +394,47 @@ generate_issue_list(Issues, Page) ->
                }
              ],
     if length(Issues) > ?MAX_RESULTS ->
-           Reply0 ++ page_controls(<<"ip">>, Page, count_pages(Issues));
+           Reply0 ++ discord_ui:page_controls(<<"ip">>, Page,
+                                              count_pages(Issues));
        true -> Reply0
     end.
 
-page_controls(Prefix, Page, MaxPage) ->
-    BinPage = integer_to_binary(Page),
-    BinMaxPage = integer_to_binary(MaxPage),
-    PageFooter = <<"(page ", BinPage/binary, " of ",
-                   BinMaxPage/binary, ")">>,
-    PrevPageBin = integer_to_binary(Page - 1),
-    NextPageBin = integer_to_binary(Page + 1),
-    PrevPageLink = <<Prefix/binary, "_", PrevPageBin/binary>>,
-    NextPageLink = <<Prefix/binary, "_", NextPageBin/binary>>,
-    [#{type => 10,
-       content => PageFooter
-      },
-     #{type => 1,
-       components => [#{type => 2,
-                        style => 1,
-                        label => <<"Previous Page">>,
-                        custom_id => PrevPageLink,
-                        disabled => Page =:= 1
-                       },
-                      #{type => 2,
-                        style => 1,
-                        label => <<"Next Page">>,
-                        custom_id => NextPageLink,
-                        disabled => Page >= MaxPage
-                       }]}].
+render_volume(#{<<"name">> := Name,
+                <<"id">> := VolumeId,
+                <<"issues">> := Issues,
+                <<"start_year">> := StartYear
+               },
+             ReadIssues) ->
+    VolumeIdBin = integer_to_binary(VolumeId),
+    StartYearBin = if StartYear =/= null ->
+                          <<" [", StartYear/binary, "]">>;
+                      true ->
+                          <<>>
+                   end,
+    Header = <<Name/binary, StartYearBin/binary, " (",
+               VolumeIdBin/binary, ")\n">>,
+    RenderIssue = fun(#{<<"issue_number">> := IssueNumber,
+                        <<"name">> := IssueName,
+                        <<"id">> := IssueId
+                       }) ->
+                          Base = <<Name/binary, " #", IssueNumber/binary>>,
+                          Named = if IssueName =/= null ->
+                                         <<Base/binary, ": ",
+                                           IssueName/binary>>;
+                                     true -> Base
+                                  end,
+                          case sets:is_element(IssueId, ReadIssues) of
+                              true -> <<Named/binary, "   :closed_book:">>;
+                              false -> <<Named/binary, "   :book:">>
+                          end
+                  end,
+    lists:foldl(fun(I, Acc) ->
+                        IssueBin = RenderIssue(I),
+                        <<Acc/binary, "* ", IssueBin/binary, "\n">>
+                end,
+                Header, lists:sort(fun comic_issue:issue_number_sort/2,
+                                   Issues)).
+
 
 build_unread_issue_list(VolumeIds, IssueIds) ->
     Lookup = fun(VolumeId) ->
@@ -368,45 +466,6 @@ build_unread_issue_list(VolumeIds, IssueIds) ->
                       Acc ++ lists:filter(Filter, SortedIssues)
               end,
     lists:foldl(Builder, [], Volumes).
-
-build_read_select(VolumeId, Issues, ReadIssues, Page) ->
-    BinVolId = integer_to_binary(VolumeId),
-    Builder = fun(I=#{<<"id">> := Id}) ->
-                      BinId = integer_to_binary(Id),
-                      Cid = <<"ir_", BinVolId/binary, "_", BinId/binary>>,
-                      Read = sets:is_element(Id, ReadIssues),
-                      Default = if Read -> <<"Read">>;
-                                   true -> <<"Unread">>
-                                end,
-                      [
-                       #{type => 10,
-                         content => comic_issue:full_name(I)
-                        },
-                       #{type => 1,
-                         components => [#{type => 3,
-                                          custom_id => Cid,
-                                          options => [#{label => <<"Read">>,
-                                                        value => <<"read">>
-                                                       },
-                                                      #{label => <<"Unread">>,
-                                                        value => <<"unread">>
-                                                       }
-                                                     ],
-                                          placeholder => Default
-                                         }]
-                        }
-                      ]
-              end,
-    Sorted = lists:sort(fun comic_issue:issue_number_sort/2, Issues),
-    Truncated = lists:sublist(Sorted, (Page - 1) * ?MAX_RESULTS + 1,
-                              ?MAX_RESULTS),
-    Reply0 = lists:flatten(lists:map(Builder, Truncated)),
-    if length(Issues) > ?MAX_RESULTS ->
-           Prefix = <<"irp_", BinVolId/binary>>,
-           Reply0 ++ page_controls(Prefix, Page,
-                                   count_pages(Issues));
-       true -> Reply0
-    end.
 
 decorate_with_volume(Issue, #{<<"id">> := Id,
                               <<"name">> := Name,
@@ -476,38 +535,18 @@ send_interaction_pong(#{interaction_id := InteractionId,
       Pong
      ).
 
-volume_select_modal(Id, Volumes,
+volume_select_reply(Id, Volumes,
                     #{interaction_id := InteractionId,
                       interaction_token := InteractionToken}) ->
-    Reply = #{
-        type => ?MODAL_REPLY,
-        data => #{
-            custom_id => <<"volume_select_modal_", Id/binary>>,
-            title => <<"Select Volume">>,
-            components => [
-                #{type => 18,
-                  label => <<"Which volume">>,
-                  component => #{
-                      type => 3,
-                      custom_id => <<"volume_name_select">>,
-                      placeholder => <<"Choose...">>,
-                      options => lists:map(fun build_volume_option/1, Volumes)
-                  }
-                 }
-            ]
-        }
-    },
     discord_api:interaction_callback(
       InteractionId,
       InteractionToken,
-      Reply
+      discord_ui:volume_select_modal(Id, Volumes)
      ).
 
-build_volume_option(Volume=#{<<"id">> := Id}) ->
-    #{label => comic_volume:full_name(Volume,
-                                      #{name_length => ?NAME_OPTION_LENGTH}),
-      value => Id
-     }.
+exact_match_volume(Name, Volumes) ->
+    Fun = fun(#{<<"name">> := N}) -> N =:= Name end,
+    lists:filter(Fun, Volumes).
 
 build_volumes_binary(Volumes) ->
     Fun = fun(Volume, Acc) ->

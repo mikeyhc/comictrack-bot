@@ -2,7 +2,7 @@
 
 -include_lib("kernel/include/logger.hrl").
 
--export([sync/0, send_new_updates/0]).
+-export([sync/0, send_new_updates/0, cleanup_untracked_volumes/0]).
 
 sync() ->
     Results = lists:map(
@@ -33,10 +33,23 @@ send_new_updates() ->
                     end
             end,
     Fun = fun({User, Volumes}) ->
-                  {User, lists:filtermap(FMFun, Volumes)}
-          end,
+                  {User, lists:filtermap(FMFun, Volumes)} end,
     MailList = lists:map(Fun, maps:to_list(UserToVolumes)),
     lists:foreach(fun send_issue_list/1, MailList).
+
+cleanup_untracked_volumes() ->
+    Volumes = comicvine_db:get_volumes(),
+    UserVolumes = user_db:get_all_volumes(),
+    UntrackedVolumes = lists:filter(
+                         fun(#{<<"id">> := Id}) ->
+                                 not lists:member(Id, UserVolumes)
+                         end, Volumes),
+    lists:foreach(fun(#{<<"id">> := Id}) ->
+                          comicvine_db:remove_volume(Id)
+                  end, UntrackedVolumes),
+    lists:map(fun(#{<<"name">> := Name}) ->
+                      ?LOG_INFO("removing untracked volume ~s", [Name])
+              end, UntrackedVolumes).
 
 issue_name(#{<<"volume">> := #{<<"name">> := VolumeName},
              <<"issue_number">> := IssueNumber,

@@ -4,7 +4,11 @@
 -export([full_name/1, full_name/2]).
 -export([name_fuzzymatcher/1]).
 
--define(MATCH_CUTOFF, 0.7).
+-export_type([comic_volume/0]).
+
+-define(MATCH_CUTOFF, 0.8).
+
+-type comic_volume() :: #{}.
 
 start_year_sort(#{<<"start_year">> := A}, #{<<"start_year">> := B}) ->
     A > B.

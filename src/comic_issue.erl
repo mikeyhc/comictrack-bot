@@ -1,10 +1,17 @@
 -module(comic_issue).
 
--export([issue_number_sort/2]).
+-export([issue_number_sort/2, volume_name_sort/2]).
 -export([full_name/1, full_name/2]).
 
 issue_number_sort(#{<<"issue_number">> := A}, #{<<"issue_number">> := B}) ->
     binary_to_integer(A) < binary_to_integer(B).
+
+volume_name_sort(IA=#{<<"volume">> := #{<<"name">> := AV}},
+                 IB=#{<<"volume">> := #{<<"name">> := BV}}) ->
+    if AV < BV -> true;
+       AV > BV -> false;
+       true -> issue_number_sort(IA, IB)
+    end.
 
 full_name(Issue) -> full_name(Issue, #{}).
 
@@ -22,4 +29,4 @@ full_name(#{<<"name">> := Name,
                           true -> VolumeName
                        end
                end,
-    <<SafeName/binary, "#", IssueNumber/binary>>.
+    <<SafeName/binary, " #", IssueNumber/binary>>.

@@ -23,8 +23,15 @@ install(Nodes) ->
 %% volume functions
 -spec add_user_volume(binary(), non_neg_integer()) -> ok.
 add_user_volume(UserId, VolumeId) ->
-    Record = #user_volume{user_and_volume_id={UserId, VolumeId}},
-    mnesia:activity(transaction, fun() -> mnesia:write(Record) end).
+    Key = {UserId, VolumeId},
+    Record = #user_volume{user_and_volume_id=Key},
+    Fun = fun() ->
+                  case mnesia:wread({user_volume, Key}) of
+                      [] -> mnesia:write(Record);
+                      _ -> ok
+                  end
+          end,
+    mnesia:activity(transaction, Fun).
 
 -spec get_user_volumes(binary()) -> [non_neg_integer()].
 get_user_volumes(UserId) ->

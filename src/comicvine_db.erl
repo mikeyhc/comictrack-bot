@@ -3,6 +3,7 @@
 % Public API
 -export([install/1]).
 -export([store_volume/1, get_volumes/0, get_volume/1]).
+-export([remove_volume/1]).
 -export([store_issue/1, get_issues/0]).
 
 -record(comicvine_volume, {id :: non_neg_integer(),
@@ -56,6 +57,11 @@ get_volume(Filter) ->
 -spec get_volumes() -> [#{}].
 get_volumes() ->
     lists:map(fun volume_response/1, get_all(comicvine_volume)).
+
+-spec remove_volume(non_neg_integer()) -> ok.
+remove_volume(Id) ->
+    mnesia:activity(transaction,
+                    fun() -> mnesia:delete({comicvine_volume, Id}) end).
 
 -spec store_issue(#{}) -> ok.
 store_issue(IssueResponse=#{<<"id">> := Id,

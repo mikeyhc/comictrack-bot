@@ -13,16 +13,10 @@
     when Filter :: #{id => non_neg_integer(), name => binary()}.
 get_volume(Filter) ->
     case comicvine_db:get_volume(Filter) of
-        {ok, Reply} ->
-            ?LOG_DEBUG("successful cache hit for ~p~n",
-                       [maps:get(<<"name">>, Reply)]),
-            {ok, Reply};
+        {ok, Reply} -> {ok, Reply};
         {error, {multiple_results, Results}} ->
-            ?LOG_DEBUG("multiple cache (~p) results for ~p",
-                       [length(Results), Filter]),
             {error, {multiple_results, Results}};
         {error, not_found} ->
-            ?LOG_DEBUG("cache miss for ~p", [Filter]),
             {error, not_found}
     end.
 
@@ -58,4 +52,11 @@ is_recent(#{<<"store_date">> := StoreDateBin}) when StoreDateBin =/= null ->
     {NowDate, _} = calendar:local_time(),
     NowDays = calendar:date_to_gregorian_days(NowDate),
     NowDays - StoreDays =< ?ONE_WEEK;
-is_recent(_Issue) -> false.
+is_recent(#{<<"date_added">> := AddedBin}) ->
+    Rfc339Time = binary_to_list(<<AddedBin/binary, "Z">>),
+    SystemTime = calendar:rfc3339_to_system_time(Rfc339Time),
+    {Date, _Time} = calendar:system_time_to_universal_time(SystemTime, seconds),
+    AddedDays = calendar:date_to_gregorian_days(Date),
+    {NowDate, _} = calendar:local_time(),
+    NowDays = calendar:date_to_gregorian_days(NowDate),
+    NowDays - AddedDays =< ?ONE_WEEK.
