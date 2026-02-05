@@ -49,10 +49,8 @@ page_controls(Prefix, Page, MaxPage) ->
 read_select(PagePrefix, Issues, ReadIssues, Page) ->
     Builder = fun(I=#{<<"id">> := Id,
                       <<"volume">> := #{<<"id">> := VolumeId}}) ->
-                      BinId = integer_to_binary(Id),
-                      BinVolId = integer_to_binary(VolumeId),
-                      Cid = <<?ISSUE_READ_PREFIX, BinVolId/binary, "_",
-                              BinId/binary>>,
+                      Cid = <<?ISSUE_READ_PREFIX, VolumeId/binary, "_",
+                              Id/binary>>,
                       Read = sets:is_element(Id, ReadIssues),
                       Default = if Read -> <<"Read">>;
                                    true -> <<"Unread">>
@@ -95,14 +93,13 @@ volume_view(#{<<"name">> := Name,
              },
             ReadIssues,
             Page) ->
-    VolumeIdBin = integer_to_binary(VolumeId),
     StartYearBin = if StartYear =/= null ->
                           <<" [", StartYear/binary, "]">>;
                       true ->
                           <<>>
                    end,
     Header = <<Name/binary, StartYearBin/binary, " (",
-               VolumeIdBin/binary, ")">>,
+               VolumeId/binary, ")">>,
     RenderIssue = fun(#{<<"issue_number">> := IssueNumber,
                         <<"name">> := IssueName,
                         <<"id">> := IssueId
@@ -119,7 +116,7 @@ volume_view(#{<<"name">> := Name,
                           end
                   end,
     paginated_list(Header, Issues, RenderIssue,
-                   <<?VOLUME_VIEW_PAGE_PREFIX, VolumeIdBin/binary, "_">>,
+                   <<?VOLUME_VIEW_PAGE_PREFIX, VolumeId/binary, "_">>,
                    Page).
 
 % helper methods

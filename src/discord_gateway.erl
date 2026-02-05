@@ -69,16 +69,7 @@ disconnected(cast, connect, Data) ->
     {ok, Protocol} = gun:await_up(ConnPid),
     ?LOG_INFO("~p connected to ~s:~p with protocol ~p",
               [ConnPid, GatewayHost, ?WSS_PORT, Protocol]),
-    Path = string:join(["/?v=", ?WEBSOCKET_API_VERSION, "&encoding=",
-                        ?RESPONSE_ENCODING], ""),
-    ?LOG_INFO("~p connecting to URI ~p", [ConnPid, Path]),
-    StreamRef = gun:ws_upgrade(ConnPid, Path),
-    receive
-        {gun_upgrade, ConnPid, StreamRef, [<<"websocket">>], _Headers} -> ok
-    after
-        ?UPGRADE_TIMEOUT -> throw({timeout, gun_upgrade})
-    end,
-    ?LOG_INFO("~p upgraded to websockets (~p)", [ConnPid, StreamRef]),
+    StreamRef = await_ws_upgrade(ConnPid),
     Connection = #connection{pid=ConnPid, mref=MRef, sref=StreamRef,
                              host=GatewayHost},
     {next_state, await_hello, Data#data{connection=Connection}}.
@@ -164,19 +155,40 @@ connected(info, Msg, Data) ->
 % helper methods
 
 handle_down({gun_down, ConnPid, ws, closed, _Remaining},
-              Data=#data{connection=#connection{pid=ConnPid, host=Host}}) ->
+              Data=#data{connection=#connection{pid=ConnPid,
+                                                host=Host}}) ->
     ?LOG_INFO("~p temporarily disconnected from ~s:~p",
               [ConnPid, Host, ?WSS_PORT]),
     {ok, Protocol} = gun:await_up(ConnPid),
     ?LOG_INFO("~p reconnected to ~s:~p with protocol ~p",
               [ConnPid, Host, ?WSS_PORT, Protocol]),
-    {keep_state, Data};
+    Conn = case Protocol of
+        ws -> Data#data.connection;
+        http2 ->
+            StreamRef = await_ws_upgrade(ConnPid),
+            Data#data.connection#connection{sref=StreamRef};
+        _ -> throw({unsupported_protocol, Protocol})
+    end,
+    {keep_state, Data#data{connection=Conn}};
 handle_down({gun_down, ConnPid, _Protocol, Err={error, _Error},
                _StreamRefs=[]},
             #data{connection=#connection{pid=ConnPid, host=Host}}) ->
     ?LOG_INFO("~p permanently disconnected from ~s:~p",
               [ConnPid, Host, ?WSS_PORT]),
     throw(Err).
+
+await_ws_upgrade(ConnPid) ->
+    Path = string:join(["/?v=", ?WEBSOCKET_API_VERSION, "&encoding=",
+                        ?RESPONSE_ENCODING], ""),
+    ?LOG_INFO("~p connecting to URI ~p", [ConnPid, Path]),
+    StreamRef = gun:ws_upgrade(ConnPid, Path),
+    receive
+        {gun_upgrade, ConnPid, StreamRef, [<<"websocket">>], _Headers} -> ok
+    after
+        ?UPGRADE_TIMEOUT -> throw({timeout, gun_upgrade})
+    end,
+    ?LOG_INFO("~p upgraded to websockets (~p)", [ConnPid, StreamRef]),
+    StreamRef.
 
 
 handle_common(heartbeat, Data) ->

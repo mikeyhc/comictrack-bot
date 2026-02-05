@@ -1,46 +1,45 @@
--module(comicvine_db).
+-module(midtown_db).
 
 % Public API
 -export([install/1]).
 -export([store_volume/1, get_volumes/0, get_volume/1, remove_volume/1]).
 -export([store_issue/1, get_issues/0]).
 
--record(comicvine_volume, {id :: non_neg_integer(),
-                           name :: binary(),
-                           response :: #{},
-                           last_updated :: non_neg_integer()
-                          }).
+-record(midtown_volume, {id :: non_neg_integer(),
+                         name :: binary(),
+                         response :: #{},
+                         last_updated :: non_neg_integer()
+                        }).
 
--record(comicvine_issue, {id :: non_neg_integer(),
-                          volume_id :: non_neg_integer(),
-                          response :: #{},
-                          last_updated :: non_neg_integer()
-                         }).
-
+-record(midtown_issue, {id :: non_neg_integer(),
+                        volume_id :: non_neg_integer(),
+                        response :: #{},
+                        last_updated :: non_neg_integer()
+                       }).
 
 %% Public API
 
 -spec install([node()]) -> ok.
 install(Nodes) ->
     Tables = #{
-        comicvine_volume => [{attributes,
-                              record_info(fields, comicvine_volume)},
-                             {index, [#comicvine_volume.name]},
-                             {disc_copies, Nodes}],
-        comicvine_issue => [{attributes,
-                             record_info(fields, comicvine_issue)},
-                            {index, [#comicvine_issue.volume_id]},
-                            {disc_copies, Nodes}]
+        midtown_volume => [{attributes,
+                            record_info(fields, midtown_volume)},
+                           {index, [#midtown_volume.name]},
+                           {disc_copies, Nodes}],
+        midtown_issue => [{attributes,
+                           record_info(fields, midtown_issue)},
+                          {index, [#midtown_issue.volume_id]},
+                          {disc_copies, Nodes}]
     },
     db_utils:install(Nodes, Tables).
 
 -spec store_volume(#{}) -> ok.
 store_volume(VolumeResponse=#{<<"name">> := Name, <<"id">> := Id}) ->
-    Record = #comicvine_volume{id=Id,
-                               name=string:casefold(Name),
-                               response=VolumeResponse,
-                               last_updated=erlang:system_time(seconds)
-                              },
+    Record = #midtown_volume{id=Id,
+                             name=string:casefold(Name),
+                             response=VolumeResponse,
+                             last_updated=erlang:system_time(seconds)
+                            },
     mnesia:activity(transaction, fun() -> mnesia:write(Record) end).
 
 -spec get_volume(Filter) -> [#{}]
@@ -55,38 +54,38 @@ get_volume(Filter) ->
 
 -spec get_volumes() -> [#{}].
 get_volumes() ->
-    lists:map(fun volume_response/1, get_all(comicvine_volume)).
+    lists:map(fun volume_response/1, get_all(midtown_volume)).
 
 -spec remove_volume(non_neg_integer()) -> ok.
 remove_volume(Id) ->
     mnesia:activity(transaction,
-                    fun() -> mnesia:delete({comicvine_volume, Id}) end).
+                    fun() -> mnesia:delete({midtown_volume, Id}) end).
 
 -spec store_issue(#{}) -> ok.
 store_issue(IssueResponse=#{<<"id">> := Id,
                             <<"volume">> := #{<<"id">> := VolumeId}}) ->
-    Record = #comicvine_issue{id=Id,
-                              volume_id=VolumeId,
-                              response=IssueResponse,
-                              last_updated=erlang:system_time(seconds)
-                             },
+    Record = #midtown_issue{id=Id,
+                            volume_id=VolumeId,
+                            response=IssueResponse,
+                            last_updated=erlang:system_time(seconds)
+                           },
     mnesia:activity(transaction, fun() -> mnesia:write(Record) end).
 
 -spec get_issues() -> [#{}].
 get_issues() ->
-    lists:map(fun issue_response/1, get_all(comicvine_issue)).
+    lists:map(fun issue_response/1, get_all(midtown_issue)).
 
 %% helper functions
 
-volume_response(#comicvine_volume{response=R, last_updated=LU}) ->
+volume_response(#midtown_volume{response=R, last_updated=LU}) ->
     R#{'_last_updated' => LU}.
 
-issue_response(#comicvine_issue{response=R, last_updated=LU}) ->
+issue_response(#midtown_issue{response=R, last_updated=LU}) ->
     R#{'_last_updated' => LU}.
 
 get_volume_by_id(Id) ->
     F = fun() ->
-        case mnesia:read({comicvine_volume, Id}) of
+        case mnesia:read({midtown_volume, Id}) of
             [] -> {error, not_found};
             [V] -> {ok, volume_response(V)};
             Res ->
@@ -99,8 +98,8 @@ get_volume_by_id(Id) ->
 get_volume_by_name(Name) ->
     SearchName = string:casefold(Name),
     F = fun() ->
-        case mnesia:index_read(comicvine_volume, SearchName,
-                               #comicvine_volume.name) of
+        case mnesia:index_read(midtown_volume, SearchName,
+                               #midtown_volume.name) of
             [] -> {error, not_found};
             [V] -> {ok, volume_response(V)};
             Res ->

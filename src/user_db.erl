@@ -6,7 +6,8 @@
          get_all_users_with_volumes/0]).
 -export([add_user_issue/3, remove_user_issue/3, get_user_issues/1]).
 
--record(user_volume, {user_and_volume_id     :: {binary(), non_neg_integer()},
+
+-record(user_volume, {user_and_volume_id     :: {binary(), binary()},
                       read_issues=sets:new() :: sets:set()
                      }).
 
@@ -21,7 +22,7 @@ install(Nodes) ->
     db_utils:install(Nodes, Tables).
 
 %% volume functions
--spec add_user_volume(binary(), non_neg_integer()) -> ok.
+-spec add_user_volume(binary(), binary()) -> ok.
 add_user_volume(UserId, VolumeId) ->
     Key = {UserId, VolumeId},
     Record = #user_volume{user_and_volume_id=Key},
@@ -46,7 +47,7 @@ get_user_volumes(UserId) ->
           end,
     mnesia:activity(transaction, Fun).
 
--spec get_all_volumes() -> [non_neg_integer()].
+-spec get_all_volumes() -> [binary()].
 get_all_volumes() ->
     Fun = fun() -> mnesia:foldl(fun(#user_volume{user_and_volume_id={_, V}},
                                     Acc) ->
@@ -68,7 +69,7 @@ get_all_users_with_volumes() ->
              mnesia:activity(transaction, Fun)).
 
 %% issue functions
--spec add_user_issue(binary(), non_neg_integer(), non_neg_integer()) -> ok.
+-spec add_user_issue(binary(), binary(), non_neg_integer()) -> ok.
 add_user_issue(UserId, VolumeId, IssueId) ->
     Fun = fun() ->
                   Pattern = #user_volume{user_and_volume_id={UserId, VolumeId},
@@ -86,7 +87,7 @@ add_user_issue(UserId, VolumeId, IssueId) ->
           end,
     mnesia:activity(transaction, Fun).
 
--spec remove_user_issue(binary(), non_neg_integer(), non_neg_integer()) -> ok.
+-spec remove_user_issue(binary(), binary(), non_neg_integer()) -> ok.
 remove_user_issue(UserId, VolumeId, IssueId) ->
     Fun = fun() ->
                   Pattern = #user_volume{user_and_volume_id={UserId, VolumeId},

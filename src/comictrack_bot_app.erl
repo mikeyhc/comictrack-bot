@@ -28,8 +28,6 @@ stop(_State) ->
     ok.
 
 install(Nodes, DiscordAppId, DiscordBotToken) ->
-    DBs = [comicvine_db, user_db],
+    DBs = [comicvine_db, user_db, id_generator, midtown_db],
     lists:foreach(fun(DB) -> DB:install(Nodes) end, DBs),
     discord_commands:install(DiscordAppId, DiscordBotToken).
-
-%% internal functions

@@ -25,7 +25,9 @@ send_new_updates() ->
                                 end,
                                 #{},
                                 comic_repository:get_new_issues()),
+    io:format("~p~n", [VolumeToIssue]),
     UserToVolumes = user_db:get_all_users_with_volumes(),
+    io:format("~p~n", [UserToVolumes]),
     FMFun = fun(Volume) ->
                     case maps:get(Volume, VolumeToIssue, false) of
                         false -> false;

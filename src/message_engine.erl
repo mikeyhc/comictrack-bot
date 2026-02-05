@@ -72,15 +72,13 @@ handle_command(Cmd, _Options, _Member, IToken) ->
     send_interaction_reply(<<"unknown command: ", Cmd/binary>>, IToken).
 
 handle_modal_reply(<<"volume_select_modal_add">>, [Select], Member, IToken) ->
-    #{<<"component">> := #{<<"values">> := [StrVolumeId]}} = Select,
-    VolumeId = binary_to_integer(StrVolumeId),
+    #{<<"component">> := #{<<"values">> := [VolumeId]}} = Select,
     {ok, Volume} = comic_repository:lookup_volume(#{id => VolumeId}),
     user_db:add_user_volume(member_to_user_id(Member), VolumeId),
     #{<<"name">> := VolumeName} = Volume,
     send_interaction_reply(<<"added \"", VolumeName/binary, "\"">>, IToken);
 handle_modal_reply(<<"volume_select_modal_get">>, [Select], Member, IToken) ->
-    #{<<"component">> := #{<<"values">> := [StrVolumeId]}} = Select,
-    VolumeId = binary_to_integer(StrVolumeId),
+    #{<<"component">> := #{<<"values">> := [VolumeId]}} = Select,
     {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
     UserIssueIds = user_db:get_user_issues(member_to_user_id(Member)),
     #{VolumeId := ReadIssues} = UserIssueIds,
@@ -88,8 +86,7 @@ handle_modal_reply(<<"volume_select_modal_get">>, [Select], Member, IToken) ->
     send_interaction_reply_components(VolumeComponent, IToken);
 handle_modal_reply(<<"volume_select_modal_read_", AllBinary/binary>>, [Select],
                    Member, IToken) ->
-    #{<<"component">> := #{<<"values">> := [StrVolumeId]}} = Select,
-    VolumeId = binary_to_integer(StrVolumeId),
+    #{<<"component">> := #{<<"values">> := [VolumeId]}} = Select,
     ReadAll = if AllBinary =:= <<"true">> -> true; true -> false end,
     {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
     if ReadAll ->
@@ -114,12 +111,11 @@ handle_button_press(<<?VOLUME_PAGE_PREFIX, PageBin/binary>>,
                     _Message, Member, IToken) ->
     Page = binary_to_integer(PageBin),
     VolumeIds = user_db:get_user_volumes(member_to_user_id(Member)),
-    VolumeList = discord_ui:volume_list(ids_to_volumes(VolumeIds), Page),
+    VolumeList = comictrack_ui:volume_list(ids_to_volumes(VolumeIds), Page),
     send_interaction_update(VolumeList, IToken);
 handle_button_press(<<?VOLUME_VIEW_PAGE_PREFIX, Rest/binary>>,
                     _Message, Member, IToken) ->
-    [VolumeIdBin, PageBin] = string:split(Rest, <<"_">>),
-    VolumeId = binary_to_integer(VolumeIdBin),
+    [VolumeId, PageBin] = string:split(Rest, <<"_">>),
     Page = binary_to_integer(PageBin),
     {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
     UserIssueIds = user_db:get_user_issues(member_to_user_id(Member)),
@@ -140,8 +136,7 @@ handle_button_press(<<?ISSUE_READ_PAGE_PREFIX, Rest/binary>>,
                     _Message, Member, IToken) ->
     case Rest of
         <<"v", Rest0/binary>> ->
-            [VolumeIdBin, PageBin] = string:split(Rest0, <<"_">>),
-            VolumeId = binary_to_integer(VolumeIdBin),
+            [VolumeId, PageBin] = string:split(Rest0, <<"_">>),
             Page = binary_to_integer(PageBin),
             {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
             VolumeRead = generate_volume_read(Volume, Member, Page),
@@ -160,10 +155,8 @@ handle_button_press(<<?ISSUE_READ_PAGE_PREFIX, Rest/binary>>,
 
 handle_string_select(<<?ISSUE_READ_PREFIX, Rest/binary>>,
                      [Value], Member, IToken) ->
-    [VolumeIdBin, IssueIdBin] = string:split(Rest, <<"_">>),
+    [VolumeId, IssueId] = string:split(Rest, <<"_">>),
     UserId = member_to_user_id(Member),
-    VolumeId = binary_to_integer(VolumeIdBin),
-    IssueId = binary_to_integer(IssueIdBin),
     case Value of
         <<"read">> -> user_db:add_user_issue(UserId, VolumeId, IssueId);
         <<"unread">> -> user_db:remove_user_issue(UserId, VolumeId, IssueId)
@@ -209,7 +202,8 @@ handle_unread_command(<<"read">>, _Option, Member, IToken) ->
 handle_volume_add(VolumeName, Member, IToken) ->
     CleanName = clean_name(VolumeName),
     case comic_repository:lookup_volume(#{name => CleanName}) of
-        {ok, Volume} -> #{<<"name">> := ActualName, <<"id">> := VolumeId} = Volume,
+        {ok, Volume} ->
+            #{<<"name">> := ActualName, <<"id">> := VolumeId} = Volume,
             user_db:add_user_volume(member_to_user_id(Member), VolumeId),
             send_interaction_reply(<<"added \"", ActualName/binary, "\"">>,
                                    IToken);
@@ -359,10 +353,9 @@ generate_volume_read(V=#{<<"id">> := VolumeId,
                     Member,
                     Page) ->
             UserIssueIds = user_db:get_user_issues(member_to_user_id(Member)),
-            BinVolId = integer_to_binary(VolumeId),
             Sorted = lists:sort(fun comic_issue:issue_number_sort/2, Issues),
             ReadSelect = comictrack_ui:read_select(
-                           <<"v", BinVolId/binary, "_">>,
+                           <<"v", VolumeId/binary, "_">>,
                            lists:map(fun(I) -> decorate_with_volume(I, V) end,
                                      Sorted),
                            maps:get(VolumeId, UserIssueIds, sets:new()),
