@@ -10,7 +10,7 @@
 % gen_statem callbacks
 -export([callback_mode/0, init/1]).
 -export([disconnected/3, await_hello/3, await_ready/3, await_heartbeat_ack/3,
-         connected/3]).
+         connected/3, await_hello_reconnect/3]).
 
 -define(WSS_PORT, 443).
 -define(WEBSOCKET_API_VERSION, "10").
@@ -25,6 +25,7 @@
 -define(MESSAGE_OP, 0).
 -define(HEARTBEAT_OP, 1).
 -define(IDENTIFY_OP, 2).
+-define(RESUMSE_OP, 6).
 -define(RECONNECT_OP, 7).
 -define(HELLO_OP, 10).
 -define(HEARTBEAT_ACK_OP, 11).
@@ -38,11 +39,14 @@
 
 -record(configuration, {bot_token :: string() | binary()}).
 
--record(data, {connection     :: optional(#connection{}),
-               hearbeat       :: optional(reference()),
-               sequence       :: optional(non_neg_integer()),
-               previous_state :: optional(atom()),
-               configuration  :: #configuration{}
+-record(data, {connection      :: optional(#connection{}),
+               hearbeat        :: optional(reference()),
+               sequence        :: optional(non_neg_integer()),
+               resume_url      :: optional(binary()),
+               session_id      :: optional(binary()),
+               previous_state  :: optional(atom()),
+               configuration   :: #configuration{},
+               old_connections :: [#connection{}]
                }).
 
 % Public API
@@ -55,7 +59,8 @@ callback_mode() -> [state_functions, state_enter].
 
 init([BotToken]) ->
     gen_statem:cast(self(), connect),
-    {ok, disconnected, #data{configuration=#configuration{bot_token=BotToken}}}.
+    {ok, disconnected, #data{configuration=#configuration{bot_token=BotToken},
+                             old_connections=[]}}.
 
 disconnected(enter, _OldState, Data) ->
     {keep_state, Data};
@@ -72,7 +77,19 @@ disconnected(cast, connect, Data) ->
     StreamRef = await_ws_upgrade(ConnPid),
     Connection = #connection{pid=ConnPid, mref=MRef, sref=StreamRef,
                              host=GatewayHost},
-    {next_state, await_hello, Data#data{connection=Connection}}.
+    {next_state, await_hello, Data#data{connection=Connection}};
+disconnected(cast, reconnect, Data=#data{resume_url=Url}) ->
+    #{host := GatewayHost} = uri_string:parse(Url),
+    {ok, ConnPid} = gun:open(binary_to_list(GatewayHost), ?WSS_PORT,
+                             #{protocols => [http]}),
+    MRef = monitor(process, ConnPid),
+    {ok, Protocol} = gun:await_up(ConnPid),
+    ?LOG_INFO("~p connected to ~s:~p with protocol ~p",
+              [ConnPid, GatewayHost, ?WSS_PORT, Protocol]),
+    StreamRef = await_ws_upgrade(ConnPid),
+    Connection = #connection{pid=ConnPid, mref=MRef, sref=StreamRef,
+                             host=GatewayHost},
+    {next_state, await_hello_reconnect, Data#data{connection=Connection}}.
 
 await_hello(enter, _OldState, Data) ->
     {keep_state, Data};
@@ -96,17 +113,44 @@ await_hello(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
 await_hello(info, Msg, Data) ->
     handle_common(Msg, Data).
 
+await_hello_reconnect(enter, _OldState, Data) ->
+    {keep_state, Data};
+await_hello_reconnect(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
+                      Data=#data{connection=#connection{pid=ConnPid,
+                                                        sref=StreamRef},
+                                 configuration=Config,
+                                 session_id=SessionId,
+                                 sequence=Seq}) ->
+    #{<<"op">> := ?HELLO_OP, <<"d">> := D} = jsone:decode(Msg),
+    #{<<"heartbeat_interval">> := HeartbeatIV} = D,
+    {ok, HeartbeatPid} = discord_heartbeat:start(HeartbeatIV),
+    ?LOG_INFO("heartbeat started with interval: ~p", [HeartbeatIV]),
+    Resume=#{<<"token">> => list_to_binary(Config#configuration.bot_token),
+             <<"session_id">> => SessionId,
+             <<"seq">> => Seq
+            },
+    send_ws_message(?RESUMSE_OP, Resume, Data),
+    {next_state, await_ready, Data#data{hearbeat=HeartbeatPid}};
+await_hello_reconnect(info, Msg, Data) ->
+    handle_common(Msg, Data).
+
 await_ready(enter, _OldState, Data) ->
     {keep_state, Data};
 await_ready(info, {gun_ws, ConnPid, StreamRef, {text, JsonMsg}},
-            Data=#data{connection=#connection{pid=ConnPid, sref=StreamRef}}) ->
+            Data0=#data{connection=#connection{pid=ConnPid, sref=StreamRef}}) ->
     Msg = jsone:decode(JsonMsg),
     case maps:get(<<"op">>, Msg) of
         ?MESSAGE_OP ->
+            #{<<"d">> := #{<<"session_id">> := SessionId,
+                           <<"resume_gateway_url">> := Resume
+                          }} = Msg,
+            Data = Data0#data{session_id=SessionId,
+                              resume_url=Resume
+                             },
             ?LOG_INFO("discord gateway is now connected"),
             {next_state, connected, update_seq(Msg, Data)};
         Op ->
-            {stop, {unexpected_op_code, Op}, Data}
+            {stop, {unexpected_op_code, Op}, Data0}
     end;
 await_ready(info, Msg, Data) ->
     handle_common(Msg, Data).
@@ -146,7 +190,9 @@ connected(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
         ?RECONNECT_OP ->
             gen_statem:cast(self(), reconnect),
             gun:close(ConnPid),
-            {next_state, disconnected, Data#data{connection=undefined}};
+            OldConnections = [Data#data.connection|Data#data.old_connections],
+            {next_state, disconnected,
+             Data#data{connection=undefined, old_connections=OldConnections}};
         OpCode -> throw({unexpected_op_code, OpCode, Msg})
     end;
 connected(info, Msg, Data) ->
@@ -164,18 +210,33 @@ handle_down({gun_down, ConnPid, ws, closed, _Remaining},
               [ConnPid, Host, ?WSS_PORT, Protocol]),
     Conn = case Protocol of
         ws -> Data#data.connection;
+        http ->
+            StreamRef = await_ws_upgrade(ConnPid),
+            Data#data.connection#connection{sref=StreamRef};
         http2 ->
             StreamRef = await_ws_upgrade(ConnPid),
             Data#data.connection#connection{sref=StreamRef};
         _ -> throw({unsupported_protocol, Protocol})
     end,
-    {keep_state, Data#data{connection=Conn}};
+    OldConnections = [Data#data.connection|Data#data.old_connections],
+    {keep_state, Data#data{connection=Conn, old_connections=OldConnections}};
 handle_down({gun_down, ConnPid, _Protocol, Err={error, _Error},
                _StreamRefs=[]},
             #data{connection=#connection{pid=ConnPid, host=Host}}) ->
     ?LOG_INFO("~p permanently disconnected from ~s:~p",
               [ConnPid, Host, ?WSS_PORT]),
-    throw(Err).
+    throw(Err);
+handle_down({'DOWN', MRef, process, CPid, shutdown},
+            Data=#data{old_connections=OldConnections}) ->
+    Matcher = fun(#connection{pid=P, mref=R}) ->
+                      CPid =:= P andalso MRef =:= R
+              end,
+    case lists:any(Matcher, OldConnections) of
+        true -> ?LOG_INFO("received down message for ~p", [CPid]);
+        false ->
+            ?LOG_ERROR("down message for unknown pid: {~p, ~p}", [CPid, MRef])
+    end,
+    {keep_state, Data}.
 
 await_ws_upgrade(ConnPid) ->
     Path = string:join(["/?v=", ?WEBSOCKET_API_VERSION, "&encoding=",

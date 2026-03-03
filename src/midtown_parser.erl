@@ -82,7 +82,7 @@ parse_issue_name(Anchor) ->
     NotNumber = fun(<<$#, _/binary>>) -> false; (_) -> true end,
     {VolumeParts, [FullIssueBin|_]} = lists:splitwith(NotNumber, Parts),
     <<$#, IssueNumber/binary>> = FullIssueBin,
-    {binary:join(VolumeParts, <<" ">>), IssueNumber}.
+    {binary_join(VolumeParts, <<" ">>), IssueNumber}.
 
 extract_dd_value([Element]) ->
     extract_dd_value_(Element);
@@ -177,3 +177,7 @@ issue_stub(Issue) ->
                            <<"name">>,
                            <<"issue_number">>
                           ]).
+
+% older version of erlang runnning on the server so need to provide this myself
+binary_join(A, B) ->
+    <<A/binary, B/binary>>.

@@ -5,13 +5,21 @@
 -export([sync/0, send_new_updates/0, cleanup_untracked_volumes/0]).
 
 sync() ->
+    ComicvineVolumes = fun(Id) ->
+                               [Code, BinId] = binary:split(Id, <<"-">>),
+                               case Code of
+                                   <<"cv">> -> {true, binary_to_integer(BinId)};
+                                   _ -> false
+                               end
+                       end,
     Results = lists:map(
                 fun(VolumeId) ->
                         ?LOG_INFO("fetching updates for volume id ~p",
                                   [VolumeId]),
                         comicvine_updater:fetch_volume_from_api(VolumeId)
                 end,
-                user_db:get_all_volumes()),
+                lists:filtermap(ComicvineVolumes,
+                                user_db:get_all_volumes())),
     ?LOG_INFO("fetched ~p volumes", [length(Results)]),
     {Statuses, _Values} = lists:unzip(Results),
     true = lists:all(fun(V) -> V =:= ok end, Statuses),
@@ -25,9 +33,7 @@ send_new_updates() ->
                                 end,
                                 #{},
                                 comic_repository:get_new_issues()),
-    io:format("~p~n", [VolumeToIssue]),
     UserToVolumes = user_db:get_all_users_with_volumes(),
-    io:format("~p~n", [UserToVolumes]),
     FMFun = fun(Volume) ->
                     case maps:get(Volume, VolumeToIssue, false) of
                         false -> false;
@@ -35,7 +41,9 @@ send_new_updates() ->
                     end
             end,
     Fun = fun({User, Volumes}) ->
-                  {User, lists:filtermap(FMFun, Volumes)} end,
+                  Issues = lists:filtermap(FMFun, Volumes),
+                  {User, lists:sort(Issues)}
+          end,
     MailList = lists:map(Fun, maps:to_list(UserToVolumes)),
     lists:foreach(fun send_issue_list/1, MailList).
 
