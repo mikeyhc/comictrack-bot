@@ -72,44 +72,35 @@ issues(Filters) ->
 
 % gen_server callbacks
 init([Token]) ->
-    gen_server:cast(self(), connect),
     {ok, #state{configuration=#configuration{token=Token}}}.
 
 handle_call({get, Resource, Query}, {Pid, _Tags},
-            State=#state{connection=Conn, requests=Reqs}) ->
+            State=#state{requests=Reqs}) ->
+    Conn = get_connection(State),
     QueryString = build_query_params(default_query_params(State) ++ Query),
     FullUrl = "/api" ++ Resource ++ "/" ++ QueryString,
     ?LOG_DEBUG("sending GET to ~p", [FullUrl]),
     StreamRef = gun:get(Conn#connection.pid, FullUrl, build_headers(State)),
     {reply, {ok, StreamRef},
-     State#state{requests=Reqs#{StreamRef => #request{pid=Pid}}}}.
+     State#state{connection=Conn,
+                 requests=Reqs#{StreamRef => #request{pid=Pid}}}}.
 
-handle_cast(connect, State0) ->
-    {ok, ConnPid} = gun:open(?COMICVINE_HOST, ?COMICVINE_PORT, #{}),
-    MRef = monitor(process, ConnPid),
-    {ok, Protocol} = gun:await_up(ConnPid),
-    ?LOG_INFO("~p connected to ~s:~p with protocol ~p",
-              [ConnPid, ?COMICVINE_HOST, ?COMICVINE_PORT, Protocol]),
-    State1 = State0#state{connection=#connection{pid=ConnPid,
-                                                 mref=MRef
-                                                }},
-    {noreply, State1}.
+handle_cast(_Msg, State) -> {noreply, State}.
 
-% TODO handle resending any failed streamrefs
-handle_info({gun_down, ConnPid, _Protocol, normal, _StreamRefs=[]},
-            State=#state{connection=#connection{pid=ConnPid}}) ->
-    ?LOG_INFO("~p temporarily disconnected from ~s:~p",
-              [ConnPid, ?COMICVINE_HOST, ?COMICVINE_PORT]),
-    {ok, Protocol} = gun:await_up(ConnPid),
-    ?LOG_INFO("~p reconnected to ~s:~p with protocol ~p",
-              [ConnPid, ?COMICVINE_HOST, ?COMICVINE_PORT, Protocol]),
-    {noreply, State};
-% TODO handle resending any failed streamrefs
-handle_info({gun_down, ConnPid, _Protocol, Err={error, _Error}, _StreamRefs=[]},
-            _State) ->
-    ?LOG_INFO("~p permanently disconnected from ~s:~p",
-              [ConnPid, ?COMICVINE_HOST, ?COMICVINE_PORT]),
-    throw(Err);
+handle_info({gun_down, ConnPid, _Protocol, Reason, _StreamRefs},
+            State=#state{connection=#connection{pid=ConnPid,
+                                                mref=MRef}}) ->
+    case gun_util:handle_down(ConnPid, Reason, ?COMICVINE_HOST,
+                              ?COMICVINE_PORT) of
+        connected -> {noreply, State};
+        disconnected ->
+            gun:close(ConnPid),
+            receive
+                {'DOWN', MRef, process, ConnPid, shutdown} -> ok
+            after 1000 -> ?LOG_ERROR("didn't receive down message")
+            end,
+            {noreply, State#state{connection=undefined}}
+    end;
 handle_info({gun_response, ConnPid, StreamRef, Fin, Status, _Headers},
             State=#state{connection=#connection{pid=ConnPid},
                          requests=ActiveRequests}) ->
@@ -197,3 +188,14 @@ build_filter(Filters) ->
 
 build_url(String, Args) ->
     lists:flatten(io_lib:format(String, Args)).
+
+connect() ->
+    {ok, ConnPid} = gun:open(?COMICVINE_HOST, ?COMICVINE_PORT, #{}),
+    MRef = monitor(process, ConnPid),
+    {ok, Protocol} = gun:await_up(ConnPid),
+    ?LOG_INFO("~p connected to ~s:~p with protocol ~p",
+              [ConnPid, ?COMICVINE_HOST, ?COMICVINE_PORT, Protocol]),
+    #connection{pid=ConnPid, mref=MRef}.
+
+get_connection(#state{connection=undefined}) -> connect();
+get_connection(State) -> State#state.connection.

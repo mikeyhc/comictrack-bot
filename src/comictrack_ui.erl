@@ -7,7 +7,8 @@
                      label/2, modal_reply/3]).
 
 -export([volume_select_modal/2, page_controls/3, read_select/4,
-         unread_issue_list/2, volume_list/2, volume_view/3]).
+         unread_issue_list/2, volume_list/2, volume_view/3,
+         string_reply/1]).
 
 % limits
 -define(NAME_OPTION_LENGTH, 50).
@@ -118,6 +119,9 @@ volume_view(#{<<"name">> := Name,
     paginated_list(Header, Issues, RenderIssue,
                    <<?VOLUME_VIEW_PAGE_PREFIX, VolumeId/binary, "_">>,
                    Page).
+
+-spec string_reply(iolist()) -> discord_ui:discord_component().
+string_reply(Reply) -> [text_display(Reply)].
 
 % helper methods
 build_volume_option(Volume=#{<<"id">> := Id}) ->

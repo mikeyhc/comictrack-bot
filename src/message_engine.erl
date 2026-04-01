@@ -21,6 +21,8 @@
 -define(MAX_SELECT_ELEMENTS, 20).
 -define(MAX_RESULTS, 10).
 
+-define(CACHE_DURATION, (15 * 60)). % 15 minutes
+
 process(D=#{<<"id">> := InteractionId,
             <<"token">> := InteractionToken,
             <<"member">> := Member,
@@ -105,7 +107,15 @@ handle_modal_reply(<<"volume_select_modal_read_", AllBinary/binary>>, [Select],
        true ->
            VolumeRead = generate_volume_read(Volume, Member),
            send_interaction_reply_components(VolumeRead, IToken)
-    end.
+    end;
+handle_modal_reply(<<"volume_select_modal_remove">>, [Select], Member,
+                   IToken) ->
+    #{<<"component">> := #{<<"values">> := [VolumeId]}} = Select,
+    {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
+    user_db:remove_user_volume(member_to_user_id(Member), VolumeId),
+    #{<<"name">> := VolumeName} = Volume,
+    send_interaction_reply(<<"removed volume \"", VolumeName/binary, "\"">>,
+                           IToken).
 
 handle_button_press(<<?VOLUME_PAGE_PREFIX, PageBin/binary>>,
                     _Message, Member, IToken) ->
@@ -126,11 +136,8 @@ handle_button_press(<<?ISSUE_PAGE_PREFIX, PageBin/binary>>,
                     _Message, Member, IToken) ->
     Page = binary_to_integer(PageBin),
     UserId = member_to_user_id(Member),
-    VolumeIds = user_db:get_user_volumes(UserId),
-    UserIssueIds = user_db:get_user_issues(UserId),
-    UnreadList = build_unread_issue_list(VolumeIds, UserIssueIds),
-    Sorted = lists:sort(fun comic_issue:volume_name_sort/2, UnreadList),
-    IssueList = comictrack_ui:unread_issue_list(Sorted, Page),
+    Unread = comictrack_unread:get_user_unread_issues(UserId),
+    IssueList = comictrack_ui:unread_issue_list(Unread, Page),
     send_interaction_update(IssueList, IToken);
 handle_button_press(<<?ISSUE_READ_PAGE_PREFIX, Rest/binary>>,
                     _Message, Member, IToken) ->
@@ -141,16 +148,28 @@ handle_button_press(<<?ISSUE_READ_PAGE_PREFIX, Rest/binary>>,
             {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
             VolumeRead = generate_volume_read(Volume, Member, Page),
             send_interaction_update(VolumeRead, IToken);
-        <<"u_", PageBin/binary>> ->
+        <<"u_", Rest0/binary>> ->
+            [CacheId, PageBin] = string:split(Rest0, <<"_">>),
+            ?LOG_DEBUG("fetching cached results: ~s~n", [CacheId]),
             UserId = member_to_user_id(Member),
             Page = binary_to_integer(PageBin),
-            VolumeIds = user_db:get_user_volumes(UserId),
-            UserIssueIds = user_db:get_user_issues(UserId),
-            UnreadList = build_unread_issue_list(VolumeIds, UserIssueIds),
-            Sorted = lists:sort(fun comic_issue:volume_name_sort/2, UnreadList),
-            UnreadReply = comictrack_ui:read_select(<<"u_">>, Sorted,
-                                                    sets:new(), Page),
-            send_interaction_update(UnreadReply, IToken)
+            case request_cache:get_entry(CacheId) of
+                {ok, Unread} ->
+                    UserVolumeIssueIds = user_db:get_user_issues(UserId),
+                    UserIssueIds = sets:union(maps:values(UserVolumeIssueIds)),
+                    UnreadReply = comictrack_ui:read_select(
+                                    <<"u_", CacheId/binary, "_">>,
+                                    Unread,
+                                    UserIssueIds,
+                                    Page),
+                    send_interaction_update(UnreadReply, IToken);
+                {error, Error} ->
+                    ?LOG_WARNING("failed to get cache results[~s]: ~p",
+                                 [CacheId, Error]),
+                    Reply = comictrack_ui:string_reply(
+                              <<"This message has expired">>),
+                    send_interaction_update(Reply, IToken)
+            end
     end.
 
 handle_string_select(<<?ISSUE_READ_PREFIX, Rest/binary>>,
@@ -169,6 +188,14 @@ handle_volume_command(<<"add">>, Option, Member, IToken) ->
         [#{<<"name">> := <<"name">>,
            <<"value">> := VolumeName}] ->
             handle_volume_add(VolumeName, Member, IToken);
+        _ -> send_interaction_reply(<<"requires a volume to add!">>, IToken)
+    end;
+handle_volume_command(<<"remove">>, Option, Member, IToken) ->
+    #{<<"options">> := Arguments} = Option,
+    case Arguments of
+        [#{<<"name">> := <<"name">>,
+           <<"value">> := VolumeName}] ->
+            handle_volume_remove(VolumeName, Member, IToken);
         _ -> send_interaction_reply(<<"requires a volume to add!">>, IToken)
     end;
 handle_volume_command(<<"get">>, Option, Member, IToken) ->
@@ -219,6 +246,43 @@ handle_volume_add(VolumeName, Member, IToken) ->
               IToken);
         {error, Err} -> ?LOG_ERROR("volume add error: ~p", [Err]),
             send_interaction_reply(<<"an unexpected error occurred">>, IToken)
+    end.
+
+
+handle_volume_remove(VolumeName, Member, IToken) ->
+    CleanName = clean_name(VolumeName),
+    UserId = member_to_user_id(Member),
+    {_Oks, UserVolumes} = lists:unzip(
+                            lists:map(
+                              fun(V) ->
+                                      comic_repository:get_volume(#{id => V})
+                              end,
+                              user_db:get_user_volumes(UserId))),
+    case lists:filter(comic_volume:name_fuzzymatcher(CleanName), UserVolumes) of
+        [] ->
+            send_interaction_reply(
+              <<"could not find volume \"", CleanName/binary, "\"">>,
+              IToken);
+        [#{<<"id">> := VolumeId, <<"name">> := ActualName}] ->
+            user_db:remove_user_volume(member_to_user_id(Member), VolumeId),
+            send_interaction_reply(
+              <<"removed volume \"", ActualName/binary, "\"">>,
+              IToken);
+        Volumes ->
+            case exact_match_volume(CleanName, Volumes) of
+                [#{<<"id">> := VolumeId, <<"name">> := ActualName}] ->
+                    user_db:remove_user_volume(member_to_user_id(Member),
+                                               VolumeId),
+                    send_interaction_reply(
+                      <<"removed volume \"", ActualName/binary, "\"">>,
+                      IToken);
+                _ ->
+                    Subset = lists:sublist(lists:sort(
+                                             fun comic_volume:start_year_sort/2,
+                                             Volumes),
+                                           ?MAX_SELECT_ELEMENTS),
+                    volume_select_reply(<<"remove">>, Subset, IToken)
+            end
     end.
 
 handle_volume_get(VolumeName, Member, IToken) ->
@@ -321,10 +385,8 @@ handle_unread_issue_list(Member, IToken) ->
             send_interaction_reply(<<"you aren't tracking any volumes :(">>,
                                    IToken);
         _ ->
-            UserIssueIds = user_db:get_user_issues(UserId),
-            UnreadList = build_unread_issue_list(VolumeIds, UserIssueIds),
-            Sorted = lists:sort(fun comic_issue:volume_name_sort/2, UnreadList),
-            IssueList = comictrack_ui:unread_issue_list(Sorted, 1),
+            Unread = comictrack_unread:get_user_unread_issues(UserId),
+            IssueList = comictrack_ui:unread_issue_list(Unread, 1),
             send_interaction_reply_components(IssueList, IToken)
     end.
 
@@ -336,10 +398,10 @@ handle_unread_read_list(Member, IToken) ->
             send_interaction_reply(<<"you aren't tracking any volumes :(">>,
                                    IToken);
         _ ->
-            UserIssueIds = user_db:get_user_issues(UserId),
-            UnreadList = build_unread_issue_list(VolumeIds, UserIssueIds),
-            Sorted = lists:sort(fun comic_issue:volume_name_sort/2, UnreadList),
-            Reply = comictrack_ui:read_select(<<"u_">>, Sorted, sets:new(), 1),
+            Unread = comictrack_unread:get_user_unread_issues(UserId),
+            CacheId = request_cache:store_entry(Unread, ?CACHE_DURATION),
+            Reply = comictrack_ui:read_select(<<"u_", CacheId/binary, "_">>,
+                                              Unread, sets:new(), 1),
             send_interaction_reply_components(Reply, IToken)
     end.
 
@@ -369,38 +431,6 @@ generate_volume_read(V=#{<<"id">> := VolumeId,
                 }
               ] ++ ReadSelect.
 
-
-
-build_unread_issue_list(VolumeIds, IssueIds) ->
-    Lookup = fun(VolumeId) ->
-                     {ok, V} = comic_repository:get_volume(#{id => VolumeId}),
-                     V
-             end,
-    Volumes = lists:sort(fun comic_volume:name_sort/2,
-                         lists:map(Lookup, VolumeIds)),
-    Builder = fun(#{<<"id">> := VolumeId,
-                    <<"name">> := VolumeName,
-                    <<"start_year">> := StartYear,
-                    <<"issues">> := IssueList},
-                  Acc) ->
-                      ReadIssues = maps:get(VolumeId, IssueIds, sets:new()),
-                      VolumeBlock = #{<<"name">> => VolumeName,
-                                      <<"id">> => VolumeId,
-                                      <<"start_year">> => StartYear
-                                     },
-                      AddBlockFn = fun(Issue) ->
-                                           Issue#{<<"volume">> => VolumeBlock}
-                                   end,
-                      MappedIssues = lists:map(AddBlockFn, IssueList),
-                      SortedIssues = lists:sort(
-                                       fun comic_issue:issue_number_sort/2,
-                                       MappedIssues),
-                      Filter = fun(#{<<"id">> := IssueId}) ->
-                                       not sets:is_element(IssueId, ReadIssues)
-                               end,
-                      Acc ++ lists:filter(Filter, SortedIssues)
-              end,
-    lists:foldl(Builder, [], Volumes).
 
 decorate_with_volume(Issue, #{<<"id">> := Id,
                               <<"name">> := Name,

@@ -3,7 +3,7 @@
 % Public API
 -export([install/1]).
 -export([add_user_volume/2, get_user_volumes/1, get_all_volumes/0,
-         get_all_users_with_volumes/0]).
+         get_all_users_with_volumes/0, remove_user_volume/2]).
 -export([add_user_issue/3, remove_user_issue/3, get_user_issues/1]).
 
 
@@ -67,6 +67,12 @@ get_all_users_with_volumes() ->
     Fun = fun() -> mnesia:foldl(FoldFun, #{}, user_volume) end,
     maps:map(fun(_K, V) -> sets:to_list(V) end,
              mnesia:activity(transaction, Fun)).
+
+-spec remove_user_volume(binary(), binary()) -> ok.
+remove_user_volume(UserId, VolumeId) ->
+    Key = {UserId, VolumeId},
+    Fun = fun() -> mnesia:delete({user_volume, Key}) end,
+    mnesia:activity(transaction, Fun).
 
 %% issue functions
 -spec add_user_issue(binary(), binary(), non_neg_integer()) -> ok.

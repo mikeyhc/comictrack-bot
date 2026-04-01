@@ -43,6 +43,7 @@ volume_subcommand_group() ->
     subcommand_group(<<"volume">>,
                      <<"Volume releated commands">>,
                      [volume_add_subcommand(),
+                      volume_remove_subcommand(),
                       volume_get_subcommand(),
                       volume_list_subcommand(),
                       volume_read_subcommand()
@@ -51,6 +52,14 @@ volume_subcommand_group() ->
 volume_add_subcommand() ->
     subcommand(<<"add">>,
                <<"Add a volume to track">>,
+               [string_input(<<"name">>,
+                             <<"The volume to add">>,
+                             #{required => true})
+               ]).
+
+volume_remove_subcommand() ->
+    subcommand(<<"remove">>,
+               <<"Remove a volume from tracking">>,
                [string_input(<<"name">>,
                              <<"The volume to add">>,
                              #{required => true})

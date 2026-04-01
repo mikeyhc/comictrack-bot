@@ -122,20 +122,12 @@ handle_cast(connect, State0) ->
     {noreply, State1}.
 
 % TODO handle resending any failed streamrefs
-handle_info({gun_down, ConnPid, _Protocol, normal, _StreamRefs=[]},
+handle_info({gun_down, ConnPid, _Protocol, Reason, _StreamRefs=[]},
             State=#state{connection=#connection{pid=ConnPid}}) ->
-    ?LOG_INFO("~p temporarily disconnected from ~s:~p",
-              [ConnPid, ?DISCORD_HOST, ?DISCORD_PORT]),
-    {ok, Protocol} = gun:await_up(ConnPid),
-    ?LOG_INFO("~p reconnected to ~s:~p with protocol ~p",
-              [ConnPid, ?DISCORD_HOST, ?DISCORD_PORT, Protocol]),
-    {noreply, State};
-% TODO handle resending any failed streamrefs
-handle_info({gun_down, ConnPid, _Protocol, Err={error, _Error}, _StreamRefs=[]},
-            _State) ->
-    ?LOG_INFO("~p permanently disconnected from ~s:~p",
-              [ConnPid, ?DISCORD_HOST, ?DISCORD_PORT]),
-    throw(Err);
+    case gun_util:handle_down(ConnPid, Reason, ?DISCORD_HOST, ?DISCORD_PORT) of
+        connected -> {noreply, State};
+        disconnected -> throw(Reason)
+    end;
 handle_info({gun_response, ConnPid, StreamRef, Fin, Status, _Headers},
             State=#state{connection=#connection{pid=ConnPid},
                          requests=ActiveRequests}) ->

@@ -232,7 +232,7 @@ handle_down({'DOWN', MRef, process, CPid, shutdown},
                       CPid =:= P andalso MRef =:= R
               end,
     case lists:any(Matcher, OldConnections) of
-        true -> ?LOG_INFO("received down message for ~p", [CPid]);
+        true -> ?LOG_DEBUG("received down message for ~p", [CPid]);
         false ->
             ?LOG_ERROR("down message for unknown pid: {~p, ~p}", [CPid, MRef])
     end,
