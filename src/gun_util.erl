@@ -2,7 +2,7 @@
 
 -include_lib("kernel/include/logger.hrl").
 
--export([handle_down/4]).
+-export([handle_down/4, await_down/2]).
 
 -spec handle_down(pid(), any(), iolist(), iolist()) -> connected | disconnected.
 handle_down(ConnPid, Reason, Host, Port) ->
@@ -18,6 +18,13 @@ handle_down(ConnPid, Reason, Host, Port) ->
             ?LOG_INFO("~p disconnected from ~s:~p: ~p",
                       [ConnPid, Host, Port, Reason]),
             disconnected
+    end.
+
+-spec await_down(pid(), reference()) -> ok.
+await_down(ConnPid, MRef) ->
+    receive
+        {'DOWN', MRef, process, ConnPid, shutdown} -> ok
+    after 1000 -> ?LOG_ERROR("didn't receive down message")
     end.
 
 temporary_reason(normal) -> true;

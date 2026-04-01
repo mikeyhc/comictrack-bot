@@ -95,10 +95,7 @@ handle_info({gun_down, ConnPid, _Protocol, Reason, _StreamRefs},
         connected -> {noreply, State};
         disconnected ->
             gun:close(ConnPid),
-            receive
-                {'DOWN', MRef, process, ConnPid, shutdown} -> ok
-            after 1000 -> ?LOG_ERROR("didn't receive down message")
-            end,
+            gun_util:await_down(ConnPid, MRef),
             {noreply, State#state{connection=undefined}}
     end;
 handle_info({gun_response, ConnPid, StreamRef, Fin, Status, _Headers},
