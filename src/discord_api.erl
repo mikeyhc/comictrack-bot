@@ -123,10 +123,16 @@ handle_cast(connect, State0) ->
 
 % TODO handle resending any failed streamrefs
 handle_info({gun_down, ConnPid, _Protocol, Reason, _StreamRefs=[]},
-            State=#state{connection=#connection{pid=ConnPid}}) ->
+            State=#state{connection=#connection{pid=ConnPid, mref=MRef}}) ->
     case gun_util:handle_down(ConnPid, Reason, ?DISCORD_HOST, ?DISCORD_PORT) of
         connected -> {noreply, State};
-        disconnected -> throw(Reason)
+        disconnected ->
+            receive
+                {'DOWN', MRef, process, ConnPid, shutdown} -> ok
+            after 1000 -> ?LOG_ERROR("didn't receive down message")
+            end,
+            gen_server:cast(self(), connect),
+            {noreply, State#state{connection=undefined, requests=#{}}}
     end;
 handle_info({gun_response, ConnPid, StreamRef, Fin, Status, _Headers},
             State=#state{connection=#connection{pid=ConnPid},
