@@ -127,6 +127,7 @@ handle_info({gun_down, ConnPid, _Protocol, Reason, _StreamRefs=[]},
     case gun_util:handle_down(ConnPid, Reason, ?DISCORD_HOST, ?DISCORD_PORT) of
         connected -> {noreply, State};
         disconnected ->
+            gun:close(ConnPid),
             gun_util:await_down(ConnPid, MRef),
             gen_server:cast(self(), connect),
             {noreply, State#state{connection=undefined, requests=#{}}}

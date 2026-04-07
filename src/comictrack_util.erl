@@ -23,7 +23,8 @@ sync() ->
     ?LOG_INFO("fetched ~p volumes", [length(Results)]),
     {Statuses, _Values} = lists:unzip(Results),
     true = lists:all(fun(V) -> V =:= ok end, Statuses),
-    ?LOG_INFO("sync successful").
+    ?LOG_INFO("sync successful"),
+    ok.
 
 send_new_updates() ->
     VolumeToIssue = lists:foldl(fun(Issue, Acc) ->

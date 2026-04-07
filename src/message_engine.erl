@@ -25,15 +25,22 @@
 
 process(D=#{<<"id">> := InteractionId,
             <<"token">> := InteractionToken,
-            <<"member">> := Member,
             <<"data">> := Data,
             <<"type">> := Type
            }) ->
     Message = maps:get(<<"message">>, D, #{}),
+    User = case maps:get(<<"member">>, D, undefined) of
+               undefined ->
+                   case maps:get(<<"user">>, D, undefined) of
+                       undefined -> ?LOG_ERROR("no user data: ~p", [D]);
+                       UserEntry -> UserEntry
+                   end;
+               Member -> Member
+           end,
     IToken = #{interaction_id => InteractionId,
                interaction_token => InteractionToken
               },
-    handle_msg(Type, Data, Message, Member, IToken);
+    handle_msg(Type, Data, Message, User, IToken);
 process(Msg) ->
     ?LOG_WARNING("unhandled message: ~p", [Msg]),
     ok.
@@ -440,7 +447,8 @@ decorate_with_volume(Issue, #{<<"id">> := Id,
                              <<"start_year">> => StartYear
                             }}.
 
-member_to_user_id(#{<<"user">> := #{<<"id">> := UserId}}) -> UserId.
+member_to_user_id(#{<<"user">> := #{<<"id">> := UserId}}) -> UserId;
+member_to_user_id(#{<<"id">> := UserId}) -> UserId.
 
 send_interaction_reply(Msg, IToken) ->
     Body = #{
