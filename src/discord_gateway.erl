@@ -141,12 +141,7 @@ await_ready(info, {gun_ws, ConnPid, StreamRef, {text, JsonMsg}},
     Msg = jsone:decode(JsonMsg),
     case maps:get(<<"op">>, Msg) of
         ?MESSAGE_OP ->
-            #{<<"d">> := #{<<"session_id">> := SessionId,
-                           <<"resume_gateway_url">> := Resume
-                          }} = Msg,
-            Data = Data0#data{session_id=SessionId,
-                              resume_url=Resume
-                             },
+            Data = update_session_data(Data0, maps:get(<<"d">>, Msg)),
             ?LOG_INFO("discord gateway is now connected"),
             {next_state, connected, update_seq(Msg, Data)};
         Op ->
@@ -277,3 +272,10 @@ send_ws_message(OpCode, D,
 
 update_seq(#{<<"s">> := null}, Data) -> Data;
 update_seq(#{<<"s">> := Seq}, Data) -> Data#data{sequence=Seq}.
+
+update_session_data(Data, MsgData) ->
+    SessionId = maps:get(<<"session_id">>, MsgData, Data#data.session_id),
+    Resume = maps:get(<<"resume_gateway_url">>, MsgData, Data#data.resume_url),
+    Data#data{session_id=SessionId,
+              resume_url=Resume
+             }.
