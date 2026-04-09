@@ -20,6 +20,7 @@
 -define(LIBRARY_NAME, <<"comictrack/1.0">>).
 -define(INTENTS, 0).
 -define(HEARTBEAT_ACK_TIMEOUT, 5000).
+-define(HELLO_TIMEOUT, 5000).
 
 % op codes
 -define(MESSAGE_OP, 0).
@@ -92,7 +93,7 @@ disconnected(cast, reconnect, Data=#data{resume_url=Url}) ->
     {next_state, await_hello_reconnect, Data#data{connection=Connection}}.
 
 await_hello(enter, _OldState, Data) ->
-    {keep_state, Data};
+    {keep_state, Data, [{state_timeout, ?HELLO_TIMEOUT, hello_timeout}]};
 await_hello(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
             Data=#data{connection=#connection{pid=ConnPid, sref=StreamRef},
                        configuration=Config}) ->
@@ -110,6 +111,8 @@ await_hello(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
                 },
     send_ws_message(?IDENTIFY_OP, Identify, Data),
     {next_state, await_ready, Data#data{hearbeat=HeartbeatPid}};
+await_hello(state_timeout, hello_timeout, Data) ->
+    {stop, {error, hello_timeout}, Data};
 await_hello(info, Msg, Data) ->
     handle_common(Msg, Data).
 
