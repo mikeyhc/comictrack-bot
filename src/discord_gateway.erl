@@ -214,7 +214,8 @@ handle_down({gun_down, ConnPid, ws, closed, _Remaining},
         _ -> throw({unsupported_protocol, Protocol})
     end,
     OldConnections = [Data#data.connection|Data#data.old_connections],
-    {keep_state, Data#data{connection=Conn, old_connections=OldConnections}};
+    {next_state, await_hello, Data#data{connection=Conn,
+                                        old_connections=OldConnections}};
 handle_down({gun_down, ConnPid, _Protocol, Err={error, _Error},
                _StreamRefs=[]},
             #data{connection=#connection{pid=ConnPid, host=Host}}) ->
