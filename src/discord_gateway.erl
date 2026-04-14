@@ -41,7 +41,7 @@
 -record(configuration, {bot_token :: string() | binary()}).
 
 -record(data, {connection      :: optional(#connection{}),
-               hearbeat        :: optional(reference()),
+               heartbeat       :: optional(reference()),
                sequence        :: optional(non_neg_integer()),
                resume_url      :: optional(binary()),
                session_id      :: optional(binary()),
@@ -110,7 +110,7 @@ await_hello(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
                  <<"intents">> => ?INTENTS
                 },
     send_ws_message(?IDENTIFY_OP, Identify, Data),
-    {next_state, await_ready, Data#data{hearbeat=HeartbeatPid}};
+    {next_state, await_ready, Data#data{heartbeat=HeartbeatPid}};
 await_hello(state_timeout, hello_timeout, Data) ->
     {stop, {error, hello_timeout}, Data};
 await_hello(info, Msg, Data) ->
@@ -133,7 +133,7 @@ await_hello_reconnect(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
              <<"seq">> => Seq
             },
     send_ws_message(?RESUMSE_OP, Resume, Data),
-    {next_state, await_ready, Data#data{hearbeat=HeartbeatPid}};
+    {next_state, await_ready, Data#data{heartbeat=HeartbeatPid}};
 await_hello_reconnect(info, Msg, Data) ->
     handle_common(Msg, Data).
 
@@ -177,7 +177,8 @@ connected(enter, _OldState, Data) ->
     {keep_state, Data};
 connected(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
           Data=#data{connection=#connection{pid=ConnPid,
-                                            sref=StreamRef}}) ->
+                                            sref=StreamRef},
+                     heartbeat=HeartbeatPid}) ->
     Msg = jsone:decode(JsonMsg),
     case maps:get(<<"op">>, Msg) of
         ?MESSAGE_OP ->
@@ -188,9 +189,12 @@ connected(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
         ?RECONNECT_OP ->
             gen_statem:cast(self(), reconnect),
             gun:close(ConnPid),
+            discord_heartbeat:stop(HeartbeatPid),
             OldConnections = [Data#data.connection|Data#data.old_connections],
             {next_state, disconnected,
-             Data#data{connection=undefined, old_connections=OldConnections}};
+             Data#data{connection=undefined,
+                       old_connections=OldConnections,
+                       heartbeat=undefined}};
         OpCode -> throw({unexpected_op_code, OpCode, Msg})
     end;
 connected(info, Msg, Data) ->
