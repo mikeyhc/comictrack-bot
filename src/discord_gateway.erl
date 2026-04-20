@@ -168,6 +168,9 @@ await_heartbeat_ack(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
         _ ->
             {keep_state, Data, [postpone]}
     end;
+await_heartbeat_ack(info, heartbeat, Data) ->
+    ?LOG_WARNING("heartbeat received during heartbeat_ack"),
+    {keep_state, Data};
 await_heartbeat_ack(state_timeout, ack_timeout, Data) ->
     {stop, {error, heartbeat_ack_timeout}, Data};
 await_heartbeat_ack(info, Msg, Data) ->
@@ -204,7 +207,8 @@ connected(info, Msg, Data) ->
 
 handle_down({gun_down, ConnPid, ws, closed, _Remaining},
               Data=#data{connection=#connection{pid=ConnPid,
-                                                host=Host}}) ->
+                                                host=Host},
+                         heartbeat=HeartbeatPid}) ->
     ?LOG_INFO("~p temporarily disconnected from ~s:~p",
               [ConnPid, Host, ?WSS_PORT]),
     {ok, Protocol} = gun:await_up(ConnPid),
@@ -220,9 +224,11 @@ handle_down({gun_down, ConnPid, ws, closed, _Remaining},
             Data#data.connection#connection{sref=StreamRef};
         _ -> throw({unsupported_protocol, Protocol})
     end,
+    discord_heartbeat:stop(HeartbeatPid),
     OldConnections = [Data#data.connection|Data#data.old_connections],
     {next_state, await_hello, Data#data{connection=Conn,
-                                        old_connections=OldConnections}};
+                                        old_connections=OldConnections,
+                                        heartbeat=undefined}};
 handle_down({gun_down, ConnPid, _Protocol, Err={error, _Error},
                _StreamRefs=[]},
             #data{connection=#connection{pid=ConnPid, host=Host}}) ->
