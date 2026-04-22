@@ -95,12 +95,10 @@ disconnected(cast, reconnect, Data=#data{resume_url=Url}) ->
 await_hello(enter, _OldState, Data) ->
     {keep_state, Data, [{state_timeout, ?HELLO_TIMEOUT, hello_timeout}]};
 await_hello(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
-            Data=#data{connection=#connection{pid=ConnPid, sref=StreamRef},
-                       configuration=Config}) ->
+            Data0=#data{connection=#connection{pid=ConnPid, sref=StreamRef},
+                        configuration=Config}) ->
     #{<<"op">> := ?HELLO_OP, <<"d">> := D} = jsone:decode(Msg),
-    #{<<"heartbeat_interval">> := HeartbeatIV} = D,
-    {ok, HeartbeatPid} = discord_heartbeat:start(HeartbeatIV),
-    ?LOG_INFO("heartbeat started with interval: ~p", [HeartbeatIV]),
+    Data = start_heartbeat(D, Data0),
     Properties = #{<<"os">> => build_os(),
                    <<"browser">> => ?LIBRARY_NAME,
                    <<"device">> => ?LIBRARY_NAME
@@ -110,7 +108,7 @@ await_hello(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
                  <<"intents">> => ?INTENTS
                 },
     send_ws_message(?IDENTIFY_OP, Identify, Data),
-    {next_state, await_ready, Data#data{heartbeat=HeartbeatPid}};
+    {next_state, await_ready, Data};
 await_hello(state_timeout, hello_timeout, Data) ->
     {stop, {error, hello_timeout}, Data};
 await_hello(info, Msg, Data) ->
@@ -119,21 +117,19 @@ await_hello(info, Msg, Data) ->
 await_hello_reconnect(enter, _OldState, Data) ->
     {keep_state, Data};
 await_hello_reconnect(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
-                      Data=#data{connection=#connection{pid=ConnPid,
-                                                        sref=StreamRef},
-                                 configuration=Config,
-                                 session_id=SessionId,
-                                 sequence=Seq}) ->
+                      Data0=#data{connection=#connection{pid=ConnPid,
+                                                         sref=StreamRef},
+                                  configuration=Config,
+                                  session_id=SessionId,
+                                  sequence=Seq}) ->
     #{<<"op">> := ?HELLO_OP, <<"d">> := D} = jsone:decode(Msg),
-    #{<<"heartbeat_interval">> := HeartbeatIV} = D,
-    {ok, HeartbeatPid} = discord_heartbeat:start(HeartbeatIV),
-    ?LOG_INFO("heartbeat started with interval: ~p", [HeartbeatIV]),
+    Data = start_heartbeat(D, Data0),
     Resume=#{<<"token">> => list_to_binary(Config#configuration.bot_token),
              <<"session_id">> => SessionId,
              <<"seq">> => Seq
             },
     send_ws_message(?RESUMSE_OP, Resume, Data),
-    {next_state, await_ready, Data#data{heartbeat=HeartbeatPid}};
+    {next_state, await_ready, Data};
 await_hello_reconnect(info, Msg, Data) ->
     handle_common(Msg, Data).
 
@@ -179,25 +175,23 @@ await_heartbeat_ack(info, Msg, Data) ->
 connected(enter, _OldState, Data) ->
     {keep_state, Data};
 connected(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
-          Data=#data{connection=#connection{pid=ConnPid,
-                                            sref=StreamRef},
-                     heartbeat=HeartbeatPid}) ->
+          Data0=#data{connection=#connection{pid=ConnPid,
+                                            sref=StreamRef}}) ->
     Msg = jsone:decode(JsonMsg),
     case maps:get(<<"op">>, Msg) of
         ?MESSAGE_OP ->
             ?LOG_DEBUG("received message: ~p", [Msg]),
             ?LOG_DEBUG("JSON message: ~s", [jsone:encode(Msg)]),
             message_engine:process(maps:get(<<"d">>, Msg)),
-            {keep_state, update_seq(Msg, Data)};
+            {keep_state, update_seq(Msg, Data0)};
         ?RECONNECT_OP ->
             gen_statem:cast(self(), reconnect),
             gun:close(ConnPid),
-            discord_heartbeat:stop(HeartbeatPid),
+            Data = remove_heartbeat(Data0),
             OldConnections = [Data#data.connection|Data#data.old_connections],
             {next_state, disconnected,
              Data#data{connection=undefined,
-                       old_connections=OldConnections,
-                       heartbeat=undefined}};
+                       old_connections=OldConnections}};
         OpCode -> throw({unexpected_op_code, OpCode, Msg})
     end;
 connected(info, Msg, Data) ->
@@ -206,29 +200,27 @@ connected(info, Msg, Data) ->
 % helper methods
 
 handle_down({gun_down, ConnPid, ws, closed, _Remaining},
-              Data=#data{connection=#connection{pid=ConnPid,
-                                                host=Host},
-                         heartbeat=HeartbeatPid}) ->
+            Data0=#data{connection=#connection{pid=ConnPid,
+                                               host=Host}}) ->
     ?LOG_INFO("~p temporarily disconnected from ~s:~p",
               [ConnPid, Host, ?WSS_PORT]),
     {ok, Protocol} = gun:await_up(ConnPid),
     ?LOG_INFO("~p reconnected to ~s:~p with protocol ~p",
               [ConnPid, Host, ?WSS_PORT, Protocol]),
     Conn = case Protocol of
-        ws -> Data#data.connection;
+        ws -> Data0#data.connection;
         http ->
             StreamRef = await_ws_upgrade(ConnPid),
-            Data#data.connection#connection{sref=StreamRef};
+            Data0#data.connection#connection{sref=StreamRef};
         http2 ->
             StreamRef = await_ws_upgrade(ConnPid),
-            Data#data.connection#connection{sref=StreamRef};
+            Data0#data.connection#connection{sref=StreamRef};
         _ -> throw({unsupported_protocol, Protocol})
     end,
-    discord_heartbeat:stop(HeartbeatPid),
+    Data = remove_heartbeat(Data0),
     OldConnections = [Data#data.connection|Data#data.old_connections],
     {next_state, await_hello, Data#data{connection=Conn,
-                                        old_connections=OldConnections,
-                                        heartbeat=undefined}};
+                                        old_connections=OldConnections}};
 handle_down({gun_down, ConnPid, _Protocol, Err={error, _Error},
                _StreamRefs=[]},
             #data{connection=#connection{pid=ConnPid, host=Host}}) ->
@@ -293,3 +285,14 @@ update_session_data(Data, MsgData) ->
     Data#data{session_id=SessionId,
               resume_url=Resume
              }.
+
+remove_heartbeat(Data=#data{heartbeat=HeartbeatPid}) ->
+    discord_heartbeat:stop(HeartbeatPid),
+    ?LOG_INFO("heartbeat removed"),
+    Data#data{heartbeat=undefined}.
+
+start_heartbeat(#{<<"heartbeat_interval">> := HeartbeatIV},
+                Data=#data{heartbeat=undefined}) ->
+    {ok, HeartbeatPid} = discord_heartbeat:start(HeartbeatIV),
+    ?LOG_INFO("heartbeat started with interval: ~p", [HeartbeatIV]),
+    Data#data{heartbeat=HeartbeatPid}.
