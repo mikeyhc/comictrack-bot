@@ -46,8 +46,7 @@
                resume_url      :: optional(binary()),
                session_id      :: optional(binary()),
                previous_state  :: optional(atom()),
-               configuration   :: #configuration{},
-               old_connections :: [#connection{}]
+               configuration   :: #configuration{}
                }).
 
 % Public API
@@ -60,8 +59,7 @@ callback_mode() -> [state_functions, state_enter].
 
 init([BotToken]) ->
     gen_statem:cast(self(), connect),
-    {ok, disconnected, #data{configuration=#configuration{bot_token=BotToken},
-                             old_connections=[]}}.
+    {ok, disconnected, #data{configuration=#configuration{bot_token=BotToken}}}.
 
 disconnected(enter, _OldState, Data) ->
     {keep_state, Data};
@@ -176,7 +174,8 @@ connected(enter, _OldState, Data) ->
     {keep_state, Data};
 connected(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
           Data0=#data{connection=#connection{pid=ConnPid,
-                                            sref=StreamRef}}) ->
+                                             mref=MRef,
+                                             sref=StreamRef}}) ->
     Msg = jsone:decode(JsonMsg),
     case maps:get(<<"op">>, Msg) of
         ?MESSAGE_OP ->
@@ -188,10 +187,8 @@ connected(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
             gen_statem:cast(self(), reconnect),
             gun:close(ConnPid),
             Data = remove_heartbeat(Data0),
-            OldConnections = [Data#data.connection|Data#data.old_connections],
-            {next_state, disconnected,
-             Data#data{connection=undefined,
-                       old_connections=OldConnections}};
+            gun_util:await_down(ConnPid, MRef),
+            {next_state, disconnected, Data#data{connection=undefined}};
         OpCode -> throw({unexpected_op_code, OpCode, Msg})
     end;
 connected(info, Msg, Data) ->
@@ -218,9 +215,7 @@ handle_down({gun_down, ConnPid, ws, closed, _Remaining},
         _ -> throw({unsupported_protocol, Protocol})
     end,
     Data = remove_heartbeat(Data0),
-    OldConnections = [Data#data.connection|Data#data.old_connections],
-    {next_state, await_hello, Data#data{connection=Conn,
-                                        old_connections=OldConnections}};
+    {next_state, await_hello, Data#data{connection=Conn}};
 handle_down({gun_down, ConnPid, _Protocol, Err={error, _Error},
                _StreamRefs=[]},
             #data{connection=#connection{pid=ConnPid, host=Host}}) ->
@@ -235,18 +230,7 @@ handle_down({gun_ws, ConnPid, StreamRef, {close, 1001, <<>>}},
     gun:close(ConnPid),
     gun_util:await_down(ConnPid, MRef),
     Data = remove_heartbeat(Data0),
-    {next_state, disconnected, Data#data{connection=undefined}};
-handle_down({'DOWN', MRef, process, CPid, shutdown},
-            Data=#data{old_connections=OldConnections}) ->
-    Matcher = fun(#connection{pid=P, mref=R}) ->
-                      CPid =:= P andalso MRef =:= R
-              end,
-    case lists:any(Matcher, OldConnections) of
-        true -> ?LOG_DEBUG("received down message for ~p", [CPid]);
-        false ->
-            ?LOG_ERROR("down message for unknown pid: {~p, ~p}", [CPid, MRef])
-    end,
-    {keep_state, Data}.
+    {next_state, disconnected, Data#data{connection=undefined}}.
 
 await_ws_upgrade(ConnPid) ->
     Path = string:join(["/?v=", ?WEBSOCKET_API_VERSION, "&encoding=",
