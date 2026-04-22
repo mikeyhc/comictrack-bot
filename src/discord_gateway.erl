@@ -227,6 +227,15 @@ handle_down({gun_down, ConnPid, _Protocol, Err={error, _Error},
     ?LOG_INFO("~p permanently disconnected from ~s:~p",
               [ConnPid, Host, ?WSS_PORT]),
     throw(Err);
+handle_down({gun_ws, ConnPid, StreamRef, {close, 1001, <<>>}},
+            Data0=#data{connection=#connection{pid=ConnPid,
+                                               mref=MRef,
+                                               sref=StreamRef}}) ->
+    gen_statem:cast(self(), reconnect),
+    gun:close(ConnPid),
+    gun_util:await_down(ConnPid, MRef),
+    Data = remove_heartbeat(Data0),
+    {next_state, disconnected, Data#data{connection=undefined}};
 handle_down({'DOWN', MRef, process, CPid, shutdown},
             Data=#data{old_connections=OldConnections}) ->
     Matcher = fun(#connection{pid=P, mref=R}) ->
