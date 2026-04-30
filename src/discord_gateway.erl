@@ -88,7 +88,7 @@ await_hello(info, Msg, Data) ->
     handle_common(Msg, Data).
 
 await_hello_reconnect(enter, _OldState, Data) ->
-    {keep_state, Data};
+    {keep_state, Data, [{state_timeout, ?HELLO_TIMEOUT, hello_timeout}]};
 await_hello_reconnect(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
                       Data0=#data{connection=#connection{pid=ConnPid,
                                                          sref=StreamRef}}) ->
