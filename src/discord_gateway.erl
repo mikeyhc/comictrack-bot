@@ -112,6 +112,7 @@ await_ready(info, {gun_ws, ConnPid, StreamRef, {text, JsonMsg}},
             {next_state, connected, update_seq(Msg, Data)};
         ?INVALID_SESSION_OP ->
             Data = prepare_reconnect(Data0),
+            ?LOG_INFO("received invalid state, reconnecting"),
             {next_state, disconnected, Data};
         Op ->
             {stop, {unexpected_op_code, Op}, Data0}
@@ -173,17 +174,8 @@ handle_down({gun_down, ConnPid, ws, closed, _Remaining},
     {ok, Protocol} = gun:await_up(ConnPid),
     ?LOG_INFO("~p reconnected to ~s:~p with protocol ~p",
               [ConnPid, Host, ?WSS_PORT, Protocol]),
-    Conn = case Protocol of
-        ws -> Data0#data.connection;
-        http ->
-            StreamRef = await_ws_upgrade(ConnPid),
-            Data0#data.connection#connection{sref=StreamRef};
-        http2 ->
-            StreamRef = await_ws_upgrade(ConnPid),
-            Data0#data.connection#connection{sref=StreamRef};
-        _ -> throw({unsupported_protocol, Protocol})
-    end,
     Data = remove_heartbeat(Data0),
+    Conn = upgrade_ws_connection(Protocol, Data),
     {next_state, await_hello, Data#data{connection=Conn}};
 handle_down({gun_down, ConnPid, _Protocol, Err={error, _Error},
                _StreamRefs=[]},
@@ -290,3 +282,16 @@ build_identify_message(#data{configuration=Config}) ->
       <<"properties">> => Properties,
       <<"intents">> => ?INTENTS
      }.
+
+upgrade_ws_connection(Protocol, Data) ->
+    ConnPid = Data#data.connection#connection.pid,
+    case Protocol of
+        ws -> Data#data.connection;
+        http ->
+            StreamRef = await_ws_upgrade(ConnPid),
+            Data#data.connection#connection{sref=StreamRef};
+        http2 ->
+            StreamRef = await_ws_upgrade(ConnPid),
+            Data#data.connection#connection{sref=StreamRef};
+        _ -> throw({unsupported_protocol, Protocol})
+    end.
