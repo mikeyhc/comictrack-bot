@@ -76,18 +76,10 @@ disconnected(cast, reconnect, Data=#data{resume_url=Url}) ->
 await_hello(enter, _OldState, Data) ->
     {keep_state, Data, [{state_timeout, ?HELLO_TIMEOUT, hello_timeout}]};
 await_hello(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
-            Data0=#data{connection=#connection{pid=ConnPid, sref=StreamRef},
-                        configuration=Config}) ->
+            Data0=#data{connection=#connection{pid=ConnPid, sref=StreamRef}}) ->
     #{<<"op">> := ?HELLO_OP, <<"d">> := D} = jsone:decode(Msg),
     Data = start_heartbeat(D, Data0),
-    Properties = #{<<"os">> => build_os(),
-                   <<"browser">> => ?LIBRARY_NAME,
-                   <<"device">> => ?LIBRARY_NAME
-                  },
-    Identify = #{<<"token">> => list_to_binary(Config#configuration.bot_token),
-                 <<"properties">> => Properties,
-                 <<"intents">> => ?INTENTS
-                },
+    Identify = build_identify_message(Data),
     send_ws_message(?IDENTIFY_OP, Identify, Data),
     {next_state, await_ready, Data};
 await_hello(state_timeout, hello_timeout, Data) ->
@@ -99,16 +91,10 @@ await_hello_reconnect(enter, _OldState, Data) ->
     {keep_state, Data};
 await_hello_reconnect(info, {gun_ws, ConnPid, StreamRef, {text, Msg}},
                       Data0=#data{connection=#connection{pid=ConnPid,
-                                                         sref=StreamRef},
-                                  configuration=Config,
-                                  session_id=SessionId,
-                                  sequence=Seq}) ->
+                                                         sref=StreamRef}}) ->
     #{<<"op">> := ?HELLO_OP, <<"d">> := D} = jsone:decode(Msg),
     Data = start_heartbeat(D, Data0),
-    Resume=#{<<"token">> => list_to_binary(Config#configuration.bot_token),
-             <<"session_id">> => SessionId,
-             <<"seq">> => Seq
-            },
+    Resume = build_resume_message(Data),
     send_ws_message(?RESUMSE_OP, Resume, Data),
     {next_state, await_ready, Data};
 await_hello_reconnect(info, Msg, Data) ->
@@ -287,3 +273,20 @@ open_ws_connection(Url) ->
               [ConnPid, GatewayHost, ?WSS_PORT, Protocol]),
     StreamRef = await_ws_upgrade(ConnPid),
     #connection{pid=ConnPid, mref=MRef, sref=StreamRef, host=GatewayHost}.
+
+build_resume_message(#data{configuration=Config,
+                           session_id=SessionId,
+                           sequence=Seq}) ->
+    #{<<"token">> => list_to_binary(Config#configuration.bot_token),
+      <<"session_id">> => SessionId,
+      <<"seq">> => Seq}.
+
+build_identify_message(#data{configuration=Config}) ->
+    Properties = #{<<"os">> => build_os(),
+                   <<"browser">> => ?LIBRARY_NAME,
+                   <<"device">> => ?LIBRARY_NAME
+                  },
+    #{<<"token">> => list_to_binary(Config#configuration.bot_token),
+      <<"properties">> => Properties,
+      <<"intents">> => ?INTENTS
+     }.
