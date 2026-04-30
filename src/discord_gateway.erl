@@ -12,15 +12,16 @@
 -export([disconnected/3, await_hello/3, await_ready/3, await_heartbeat_ack/3,
          connected/3, await_hello_reconnect/3]).
 
+-define(DEFAULT_TIMEOUT, 5000).
 -define(WSS_PORT, 443).
 -define(WEBSOCKET_API_VERSION, "10").
 -define(RESPONSE_ENCODING, "json").
 -define(SERVER_NAME, ?MODULE).
--define(UPGRADE_TIMEOUT, 5000).
+-define(UPGRADE_TIMEOUT, ?DEFAULT_TIMEOUT).
 -define(LIBRARY_NAME, <<"comictrack/1.0">>).
 -define(INTENTS, 0).
--define(HEARTBEAT_ACK_TIMEOUT, 5000).
--define(HELLO_TIMEOUT, 5000).
+-define(HEARTBEAT_ACK_TIMEOUT, ?DEFAULT_TIMEOUT).
+-define(HELLO_TIMEOUT, ?DEFAULT_TIMEOUT).
 
 % op codes
 -define(MESSAGE_OP, 0).
