@@ -28,6 +28,7 @@
 -define(IDENTIFY_OP, 2).
 -define(RESUMSE_OP, 6).
 -define(RECONNECT_OP, 7).
+-define(INVALID_SESSION_OP, 9).
 -define(HELLO_OP, 10).
 -define(HEARTBEAT_ACK_OP, 11).
 
@@ -141,6 +142,9 @@ await_ready(info, {gun_ws, ConnPid, StreamRef, {text, JsonMsg}},
             Data = update_session_data(Data0, maps:get(<<"d">>, Msg)),
             ?LOG_INFO("discord gateway is now connected"),
             {next_state, connected, update_seq(Msg, Data)};
+        ?INVALID_SESSION_OP ->
+            Data = prepare_reconnect(Data0),
+            {next_state, disconnected, Data};
         Op ->
             {stop, {unexpected_op_code, Op}, Data0}
     end;
@@ -162,8 +166,9 @@ await_heartbeat_ack(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
         _ ->
             {keep_state, Data, [postpone]}
     end;
-await_heartbeat_ack(info, heartbeat, Data) ->
-    ?LOG_WARNING("heartbeat received during heartbeat_ack"),
+await_heartbeat_ack(info, {heartbeat, Pid}, Data) ->
+    ?LOG_WARNING("heartbeat[~p] received during heartbeat_ack[~p]",
+                 [Data#data.connection#connection.pid, Pid]),
     {keep_state, Data};
 await_heartbeat_ack(state_timeout, ack_timeout, Data) ->
     {stop, {error, heartbeat_ack_timeout}, Data};
@@ -174,7 +179,6 @@ connected(enter, _OldState, Data) ->
     {keep_state, Data};
 connected(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
           Data0=#data{connection=#connection{pid=ConnPid,
-                                             mref=MRef,
                                              sref=StreamRef}}) ->
     Msg = jsone:decode(JsonMsg),
     case maps:get(<<"op">>, Msg) of
@@ -184,11 +188,8 @@ connected(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
             message_engine:process(maps:get(<<"d">>, Msg)),
             {keep_state, update_seq(Msg, Data0)};
         ?RECONNECT_OP ->
-            gen_statem:cast(self(), reconnect),
-            gun:close(ConnPid),
-            Data = remove_heartbeat(Data0),
-            gun_util:await_down(ConnPid, MRef),
-            {next_state, disconnected, Data#data{connection=undefined}};
+            Data = prepare_reconnect(Data0),
+            {next_state, disconnected, Data};
         OpCode -> throw({unexpected_op_code, OpCode, Msg})
     end;
 connected(info, Msg, Data) ->
@@ -224,13 +225,9 @@ handle_down({gun_down, ConnPid, _Protocol, Err={error, _Error},
     throw(Err);
 handle_down({gun_ws, ConnPid, StreamRef, {close, 1001, <<>>}},
             Data0=#data{connection=#connection{pid=ConnPid,
-                                               mref=MRef,
                                                sref=StreamRef}}) ->
-    gen_statem:cast(self(), reconnect),
-    gun:close(ConnPid),
-    gun_util:await_down(ConnPid, MRef),
-    Data = remove_heartbeat(Data0),
-    {next_state, disconnected, Data#data{connection=undefined}}.
+    Data = prepare_reconnect(Data0),
+    {next_state, disconnected, Data}.
 
 await_ws_upgrade(ConnPid) ->
     Path = string:join(["/?v=", ?WEBSOCKET_API_VERSION, "&encoding=",
@@ -246,7 +243,7 @@ await_ws_upgrade(ConnPid) ->
     StreamRef.
 
 
-handle_common(heartbeat, Data) ->
+handle_common({heartbeat, _Pid}, Data) ->
     send_heartbeat(Data),
     {next_state, await_heartbeat_ack, Data};
 handle_common(Msg, Data) ->
@@ -286,6 +283,14 @@ remove_heartbeat(Data=#data{heartbeat=HeartbeatPid}) ->
 
 start_heartbeat(#{<<"heartbeat_interval">> := HeartbeatIV},
                 Data=#data{heartbeat=undefined}) ->
-    {ok, HeartbeatPid} = discord_heartbeat:start(HeartbeatIV),
+    {ok, HeartbeatPid} = discord_heartbeat:start(HeartbeatIV, self()),
     ?LOG_INFO("heartbeat started with interval: ~p", [HeartbeatIV]),
     Data#data{heartbeat=HeartbeatPid}.
+
+prepare_reconnect(Data0=#data{connection=Connection}) ->
+    #connection{pid=ConnPid, mref=MRef} = Connection,
+    gen_statem:cast(self(), reconnect),
+    gun:close(ConnPid),
+    Data = remove_heartbeat(Data0),
+    gun_util:await_down(ConnPid, MRef),
+    Data#data{connection=undefined}.
