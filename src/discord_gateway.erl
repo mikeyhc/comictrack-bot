@@ -67,28 +67,10 @@ disconnected(enter, _OldState, Data) ->
 disconnected(cast, connect, Data) ->
     {ok, Gateway} = discord_api:get_gateway_bot(),
     #{<<"url">> := Url} = Gateway,
-    #{host := GatewayHost} = uri_string:parse(Url),
-    {ok, ConnPid} = gun:open(binary_to_list(GatewayHost), ?WSS_PORT,
-                             #{protocols => [http]}),
-    MRef = monitor(process, ConnPid),
-    {ok, Protocol} = gun:await_up(ConnPid),
-    ?LOG_INFO("~p connected to ~s:~p with protocol ~p",
-              [ConnPid, GatewayHost, ?WSS_PORT, Protocol]),
-    StreamRef = await_ws_upgrade(ConnPid),
-    Connection = #connection{pid=ConnPid, mref=MRef, sref=StreamRef,
-                             host=GatewayHost},
+    Connection = open_ws_connection(Url),
     {next_state, await_hello, Data#data{connection=Connection}};
 disconnected(cast, reconnect, Data=#data{resume_url=Url}) ->
-    #{host := GatewayHost} = uri_string:parse(Url),
-    {ok, ConnPid} = gun:open(binary_to_list(GatewayHost), ?WSS_PORT,
-                             #{protocols => [http]}),
-    MRef = monitor(process, ConnPid),
-    {ok, Protocol} = gun:await_up(ConnPid),
-    ?LOG_INFO("~p connected to ~s:~p with protocol ~p",
-              [ConnPid, GatewayHost, ?WSS_PORT, Protocol]),
-    StreamRef = await_ws_upgrade(ConnPid),
-    Connection = #connection{pid=ConnPid, mref=MRef, sref=StreamRef,
-                             host=GatewayHost},
+    Connection = open_ws_connection(Url),
     {next_state, await_hello_reconnect, Data#data{connection=Connection}}.
 
 await_hello(enter, _OldState, Data) ->
@@ -294,3 +276,14 @@ prepare_reconnect(Data0=#data{connection=Connection}) ->
     Data = remove_heartbeat(Data0),
     gun_util:await_down(ConnPid, MRef),
     Data#data{connection=undefined}.
+
+open_ws_connection(Url) ->
+    #{host := GatewayHost} = uri_string:parse(Url),
+    {ok, ConnPid} = gun:open(binary_to_list(GatewayHost), ?WSS_PORT,
+                             #{protocols => [http]}),
+    MRef = monitor(process, ConnPid),
+    {ok, Protocol} = gun:await_up(ConnPid),
+    ?LOG_INFO("~p connected to ~s:~p with protocol ~p",
+              [ConnPid, GatewayHost, ?WSS_PORT, Protocol]),
+    StreamRef = await_ws_upgrade(ConnPid),
+    #connection{pid=ConnPid, mref=MRef, sref=StreamRef, host=GatewayHost}.
