@@ -179,5 +179,6 @@ issue_stub(Issue) ->
                           ]).
 
 % older version of erlang runnning on the server so need to provide this myself
-binary_join(A, B) ->
-    <<A/binary, B/binary>>.
+binary_join(Parts, Sep) ->
+    lists:foldl(fun(Part, Acc) -> <<Acc/binary, Sep/binary, Part/binary>> end,
+                <<>>, Parts).

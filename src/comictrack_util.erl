@@ -5,6 +5,9 @@
 -export([sync/0, send_new_updates/0, cleanup_untracked_volumes/0]).
 
 sync() ->
+    comicvine_sync().
+
+comicvine_sync() ->
     ComicvineVolumes = fun(Id) ->
                                [Code, BinId] = binary:split(Id, <<"-">>),
                                case Code of

@@ -1,6 +1,12 @@
 -module(midtown_updater).
 
--export([fetch_volume_from_api/1]).
+-export([fetch_volume_from_api/1, fetch_all_volumes_from_api/0]).
+
+tracked_volumes() ->
+    ["we don't kill spiders: season of the witch"].
+
+fetch_all_volumes_from_api() ->
+    lists:map(fun fetch_volume_from_api/1, tracked_volumes()).
 
 fetch_volume_from_api(_Name) ->
     {ok, Content} = file:read_file("roots-of-madness.html"),
