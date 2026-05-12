@@ -5,13 +5,12 @@
 -include("types.hrl").
 
 % Public API
--export([start_link/2, api_call/3, api_call/4]).
+-export([start_link/2, get/2, get/3, post/3, post/4, patch/3, patch/4]).
 
 % gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
 
-% this needs to be a well known agent
--define(USER_AGENT, "curl/8.7.1").
+-define(DEFAULT_USER_AGENT, "comictrack/1.0").
 -define(DEFAULT_TIMEOUT, 10_000).
 -define(DEFAULT_RETRIES, 3).
 
@@ -29,10 +28,17 @@
                 configuration :: configuration()
                }).
 
--type configuration() :: #{host := iolist(),
+-type configuration() :: #{host := string(),
                            port := pos_integer(),
-                           headers := {iolist(), iolist()},
-                           query_params := {iolist(), iolist()}}.
+                           user_agent := string(),
+                           headers := {string(), string()},
+                           query_params := {string(), string()}}.
+
+-type options() :: #{query_params := [{string(), string()}],
+                     headers := [{string(), string()}]
+                    }.
+
+-type response() :: {ok, {pos_integer(), binary()}} | {error, timeouot}.
 
 % Public API
 -spec start_link(Name, Configuration) -> {ok, pid()}
@@ -40,23 +46,70 @@
 start_link(Name, Configuration) ->
     gen_server:start_link({local, Name}, ?MODULE, [Configuration], []).
 
-api_call(ServerName, Method, Resource) ->
-    api_call(ServerName, Method, Resource, []).
+-spec get(atom(), string()) -> response().
+get(ServerName, Resource) ->
+    get(ServerName, Resource, #{}).
 
-api_call(ServerName, Method, Resource, QueryParams) ->
-    api_call_(ServerName, Method, Resource, QueryParams, ?DEFAULT_RETRIES).
+-spec get(atom(), string(), options()) -> response().
+get(ServerName, Resource, Options) ->
+    api_call_(ServerName, get, Resource, Options, ?DEFAULT_RETRIES).
+
+-spec post(atom(), string(), iolist()) -> response().
+post(ServerName, Resource, Body) ->
+    post(ServerName, Resource, Body, #{}).
+
+-spec post(atom(), string(), iolist(), options()) -> response().
+post(ServerName, Resource, Body, Options) ->
+    api_call_(ServerName, post, Resource, Body, Options, ?DEFAULT_RETRIES).
+
+-spec patch(atom(), string(), iolist()) -> response().
+patch(ServerName, Resource, Body) ->
+    patch(ServerName, Resource, Body, #{}).
+
+-spec patch(atom(), string(), iolist(), options()) -> response().
+patch(ServerName, Resource, Body, Options) ->
+    api_call_(ServerName, patch, Resource, Body, Options, ?DEFAULT_RETRIES).
 
 % gen_server callbacks
-init([Configuration]) ->
+init([UserConfiguration]) ->
+    Defaults = #{user_agent => ?DEFAULT_USER_AGENT},
+    Configuration = maps:merge(Defaults, UserConfiguration),
     {ok, #state{configuration=Configuration}}.
 
-handle_call({get, Resource, Query}, {Pid, _Tags},
+% requests without bodies
+handle_call({get, Resource, Options}, {Pid, _Tags},
             State=#state{requests=Reqs}) ->
+    Query = maps:get(query_params, Options, []),
+    Headers = maps:get(headers, Options, []),
     Conn = get_connection(State),
     QueryString = build_query_params(default_query_params(State) ++ Query),
-    FullUrl = "/api" ++ Resource ++ "/" ++ QueryString,
+    FullUrl = Resource ++ QueryString,
     ?LOG_DEBUG("sending GET to ~p", [FullUrl]),
-    StreamRef = gun:get(Conn#connection.pid, FullUrl, build_headers(State)),
+    StreamRef = gun:get(Conn#connection.pid, FullUrl,
+                        build_headers(Headers, State)),
+    {reply, {ok, StreamRef},
+     State#state{connection=Conn,
+                 requests=Reqs#{StreamRef => #request{pid=Pid}}}};
+% requests with bodies
+handle_call({Method, Resource, Body, Options}, {Pid, _Tags},
+            State=#state{requests=Reqs}) ->
+    Query = maps:get(query_params, Options, []),
+    Headers = maps:get(headers, Options, []),
+    Conn = get_connection(State),
+    QueryString = build_query_params(default_query_params(State) ++ Query),
+    FullUrl = Resource ++ QueryString,
+    StreamRef = case Method of
+                    post ->
+                        ?LOG_DEBUG("sending POST to ~p", [FullUrl]),
+                        gun:post(Conn#connection.pid, FullUrl,
+                                 build_headers(Headers, State),
+                                 Body);
+                    patch ->
+                        ?LOG_DEBUG("sending PATCH to ~p", [FullUrl]),
+                        gun:patch(Conn#connection.pid, FullUrl,
+                                  build_headers(Headers, State),
+                                  Body)
+                end,
     {reply, {ok, StreamRef},
      State#state{connection=Conn,
                  requests=Reqs#{StreamRef => #request{pid=Pid}}}}.
@@ -112,23 +165,28 @@ handle_info({gun_data, ConnPid, StreamRef, Fin, Data},
     end.
 
 % helper functions
-api_call_(_ServerName, _Method, _Resource, _QueryParams, 0) -> {error, timeout};
-api_call_(ServerName, Method, Resource, QueryParams, Retries) ->
-    {ok, Ref} = gen_server:call(ServerName, {Method, Resource, QueryParams}),
+api_call_(ServerName, Method, Resource, Options, Retries) ->
+    api_call_loop_(ServerName, {Method, Resource, Options}, Retries).
+
+api_call_(ServerName, Method, Resource, Body, Options, Retries) ->
+    api_call_loop_(ServerName, {Method, Resource, Body, Options}, Retries).
+
+api_call_loop_(_ServerName, _Msg, 0) -> {error, timeout};
+api_call_loop_(ServerName, Msg, Retries) ->
+    {ok, Ref} = gen_server:call(ServerName, Msg),
     case await_response(Ref) of
         {error, timeout} ->
-            api_call_(ServerName, Method, Resource, QueryParams, Retries - 1);
+            api_call_loop_(ServerName, Msg, Retries - 1);
         Reply -> Reply
     end.
 
 build_body(Parts) ->
     lists:foldl(fun(X, Acc) -> <<X/binary, Acc/binary>> end, <<>>, Parts).
 
-build_headers(State) ->
-    build_headers(State, []).
-
-build_headers(_State, Extra) ->
-    [{<<"user-agent">>, ?USER_AGENT}] ++ Extra.
+build_headers(Extra, #state{configuration=Configuration}) ->
+    #{user_agent := UserAgent} = Configuration,
+    Defaults = maps:get(headers, Configuration, []),
+    [{<<"user-agent">>, UserAgent}] ++ Defaults ++ Extra.
 
 await_response(Ref) ->  await_response(Ref, ?DEFAULT_TIMEOUT).
 
@@ -139,6 +197,7 @@ await_response(Ref, Timeout) ->
         Timeout -> {error, timeout}
     end.
 
+build_query_params([]) -> "";
 build_query_params(QueryParams) ->
     Joiner = fun({Key, Val}, Acc) ->
                      uri_string:quote(Key) ++ "=" ++ uri_string:quote(Val)
@@ -146,7 +205,8 @@ build_query_params(QueryParams) ->
              end,
     "?" ++ lists:foldl(Joiner, "", QueryParams).
 
-default_query_params(#state{configuration=#{query_params := Params}}) -> Params.
+default_query_params(#state{configuration=Configuration}) ->
+    maps:get(query_params, Configuration, []).
 
 connect(#state{configuration=#{host := Host, port := Port}}) ->
     {ok, ConnPid} = gun:open(Host, Port, #{}),
