@@ -7,15 +7,15 @@
 
 -behaviour(supervisor).
 
--export([start_link/2]).
+-export([start_link/3]).
 
 -export([init/1]).
 
 -define(SERVER, ?MODULE).
 
-start_link(DiscordBotToken, ComicvineApiKey) ->
+start_link(DiscordBotToken, ComicvineApiKey, MidtownHost) ->
     supervisor:start_link({local, ?SERVER}, ?MODULE,
-                          [DiscordBotToken, ComicvineApiKey]).
+                          [DiscordBotToken, ComicvineApiKey, MidtownHost]).
 
 %% sup_flags() = #{strategy => strategy(),         % optional
 %%                 intensity => non_neg_integer(), % optional
@@ -26,7 +26,7 @@ start_link(DiscordBotToken, ComicvineApiKey) ->
 %%                  shutdown => shutdown(), % optional
 %%                  type => worker(),       % optional
 %%                  modules => modules()}   % optional
-init([DiscordBotToken, ComicvineApiKey]) ->
+init([DiscordBotToken, ComicvineApiKey, MidtownHost]) ->
     SupFlags = #{
         strategy => one_for_all,
         intensity => 3,
@@ -42,7 +42,7 @@ init([DiscordBotToken, ComicvineApiKey]) ->
           type => supervisor
          },
         #{id => midtown_sup,
-          start => {midtown_sup, start_link, []},
+          start => {midtown_sup, start_link, [MidtownHost]},
           type => supervisor
          }
     ],

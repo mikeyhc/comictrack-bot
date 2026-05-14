@@ -8,8 +8,8 @@ tracked_volumes() ->
 fetch_all_volumes_from_api() ->
     lists:map(fun fetch_volume_from_api/1, tracked_volumes()).
 
-fetch_volume_from_api(_Name) ->
-    {ok, Content} = file:read_file("roots-of-madness.html"),
+fetch_volume_from_api(Name) ->
+    {ok, Content} = midtown_api:volume_search(Name),
     {Volume, Issues} = midtown_parser:parse(Content),
     midtown_db:store_volume(Volume),
     lists:foreach(fun midtown_db:store_issue/1, Issues),

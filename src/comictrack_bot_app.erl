@@ -10,7 +10,7 @@
 -export([start/2, stop/1, install/3]).
 
 start(_StartType, _StartArgs) ->
-    RequiredEnv = ["DISCORD_BOT_TOKEN", "COMICVINE_API_KEY"],
+    RequiredEnv = ["DISCORD_BOT_TOKEN", "COMICVINE_API_KEY", "MIDTOWN_HOST"],
     Lookup = fun(EnvVar, Map) ->
                      case os:getenv(EnvVar) of
                          false -> error({missing_envvar, EnvVar});
@@ -20,9 +20,12 @@ start(_StartType, _StartArgs) ->
     Env = lists:foldl(Lookup, #{}, RequiredEnv),
     #{
       "DISCORD_BOT_TOKEN" := DiscordBotToken,
-      "COMICVINE_API_KEY" := ComicvineApiKey
+      "COMICVINE_API_KEY" := ComicvineApiKey,
+      "MIDTOWN_HOST" := MidtownHost
      } = Env,
-    comictrack_bot_sup:start_link(DiscordBotToken, ComicvineApiKey).
+    comictrack_bot_sup:start_link(DiscordBotToken,
+                                  ComicvineApiKey,
+                                  MidtownHost).
 
 stop(_State) ->
     ok.

@@ -7,14 +7,14 @@
 
 -behaviour(supervisor).
 
--export([start_link/0]).
+-export([start_link/1]).
 
 -export([init/1]).
 
 -define(SERVER, ?MODULE).
 
-start_link() ->
-    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+start_link(MidtownHost) ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, [MidtownHost]).
 
 %% sup_flags() = #{strategy => strategy(),         % optional
 %%                 intensity => non_neg_integer(), % optional
@@ -25,7 +25,7 @@ start_link() ->
 %%                  shutdown => shutdown(), % optional
 %%                  type => worker(),       % optional
 %%                  modules => modules()}   % optional
-init([]) ->
+init([MidtownHost]) ->
     SupFlags = #{
         strategy => one_for_one,
         intensity => 3,
@@ -34,6 +34,9 @@ init([]) ->
     ChildSpecs = [
         #{id => id_generator,
           start => {id_generator, start_link, []}
+         },
+        #{id => midtown_api,
+          start => {midtown_api, start_link, [MidtownHost]}
          }
     ],
     {ok, {SupFlags, ChildSpecs}}.

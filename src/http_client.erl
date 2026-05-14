@@ -118,12 +118,13 @@ handle_cast(_Msg, State) -> {noreply, State}.
 
 handle_info({gun_down, ConnPid, _Protocol, Reason, _StreamRefs},
             State=#state{configuration=#{host := Host,
-                                         post := Port},
+                                         port := Port},
                          connection=#connection{pid=ConnPid,
                                                 mref=MRef}}) ->
     case gun_util:handle_down(ConnPid, Reason, Host, Port) of
         connected -> {noreply, State};
         disconnected ->
+            demonitor(MRef),
             gun:close(ConnPid),
             gun_util:await_down(ConnPid, MRef),
             {noreply, State#state{connection=undefined}}

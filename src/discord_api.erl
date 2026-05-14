@@ -1,7 +1,6 @@
 -module(discord_api).
 
 -include_lib("kernel/include/logger.hrl").
--include("types.hrl").
 
 % Public API
 -export([start_link/1]).

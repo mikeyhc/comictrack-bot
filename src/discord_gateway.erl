@@ -138,7 +138,7 @@ await_heartbeat_ack(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
     end;
 await_heartbeat_ack(info, {heartbeat, Pid}, Data) ->
     ?LOG_WARNING("heartbeat[~p] received during heartbeat_ack[~p]",
-                 [Data#data.connection#connection.pid, Pid]),
+                 [Pid, Data#data.connection#connection.pid]),
     {keep_state, Data};
 await_heartbeat_ack(state_timeout, ack_timeout, Data) ->
     {stop, {error, heartbeat_ack_timeout}, Data};
@@ -243,8 +243,9 @@ remove_heartbeat(Data=#data{heartbeat=HeartbeatPid}) ->
     Data#data{heartbeat=undefined}.
 
 start_heartbeat(#{<<"heartbeat_interval">> := HeartbeatIV},
-                Data=#data{heartbeat=undefined}) ->
-    {ok, HeartbeatPid} = discord_heartbeat:start(HeartbeatIV, self()),
+                Data=#data{heartbeat=undefined,
+                           connection=#connection{pid=ConnPid}}) ->
+    {ok, HeartbeatPid} = discord_heartbeat:start(HeartbeatIV, ConnPid),
     ?LOG_INFO("heartbeat started with interval: ~p", [HeartbeatIV]),
     Data#data{heartbeat=HeartbeatPid}.
 

@@ -5,7 +5,8 @@
 -export([sync/0, send_new_updates/0, cleanup_untracked_volumes/0]).
 
 sync() ->
-    comicvine_sync().
+    comicvine_sync(),
+    midtown_sync().
 
 comicvine_sync() ->
     ComicvineVolumes = fun(Id) ->
@@ -23,10 +24,18 @@ comicvine_sync() ->
                 end,
                 lists:filtermap(ComicvineVolumes,
                                 user_db:get_all_volumes())),
-    ?LOG_INFO("fetched ~p volumes", [length(Results)]),
+    ?LOG_INFO("comicvine fetched ~p volumes", [length(Results)]),
     {Statuses, _Values} = lists:unzip(Results),
     true = lists:all(fun(V) -> V =:= ok end, Statuses),
-    ?LOG_INFO("sync successful"),
+    ?LOG_INFO("comicvine sync successful"),
+    ok.
+
+midtown_sync() ->
+    Results = midtown_updater:fetch_all_volumes_from_api(),
+    ?LOG_INFO("midtown fetched ~p volumes", [length(Results)]),
+    {Statuses, _Values} = lists:unzip(Results),
+    true = lists:all(fun(V) -> V =:= ok end, Statuses),
+    ?LOG_INFO("midtown sync successful"),
     ok.
 
 send_new_updates() ->
