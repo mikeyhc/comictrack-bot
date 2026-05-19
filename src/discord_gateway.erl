@@ -136,9 +136,9 @@ await_heartbeat_ack(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
         _ ->
             {keep_state, Data, [postpone]}
     end;
-await_heartbeat_ack(info, {heartbeat, Pid}, Data) ->
-    ?LOG_WARNING("heartbeat[~p] received during heartbeat_ack[~p]",
-                 [Pid, Data#data.connection#connection.pid]),
+await_heartbeat_ack(info, {heartbeat, Pid, Caller}, Data) ->
+    ?LOG_WARNING("heartbeat[~p] received during heartbeat_ack[~p][~p]",
+                 [Pid, Data#data.connection#connection.pid, Caller]),
     {keep_state, Data};
 await_heartbeat_ack(state_timeout, ack_timeout, Data) ->
     {stop, {error, heartbeat_ack_timeout}, Data};
@@ -204,7 +204,7 @@ await_ws_upgrade(ConnPid) ->
     StreamRef.
 
 
-handle_common({heartbeat, _Pid}, Data) ->
+handle_common({heartbeat, _Pid, _Caller}, Data) ->
     send_heartbeat(Data),
     {next_state, await_heartbeat_ack, Data};
 handle_common(Msg, Data) ->

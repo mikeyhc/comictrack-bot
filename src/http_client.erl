@@ -124,7 +124,6 @@ handle_info({gun_down, ConnPid, _Protocol, Reason, _StreamRefs},
     case gun_util:handle_down(ConnPid, Reason, Host, Port) of
         connected -> {noreply, State};
         disconnected ->
-            demonitor(MRef),
             gun:close(ConnPid),
             gun_util:await_down(ConnPid, MRef),
             {noreply, State#state{connection=undefined}}
