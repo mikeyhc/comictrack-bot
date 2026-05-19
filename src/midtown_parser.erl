@@ -82,7 +82,7 @@ parse_issue_name(Anchor) ->
     NotNumber = fun(<<$#, _/binary>>) -> false; (_) -> true end,
     {VolumeParts, [FullIssueBin|_]} = lists:splitwith(NotNumber, Parts),
     <<$#, IssueNumber/binary>> = FullIssueBin,
-    {binary_join(VolumeParts, <<" ">>), IssueNumber}.
+    {string:trim(binary_join(VolumeParts, <<" ">>)), IssueNumber}.
 
 extract_dd_value([Element]) ->
     extract_dd_value_(Element);

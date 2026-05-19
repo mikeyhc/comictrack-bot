@@ -16,7 +16,8 @@ volume_name_sort(IA=#{<<"volume">> := #{<<"name">> := AV}},
 full_name(Issue) -> full_name(Issue, #{}).
 
 % TODO this wont truncate properly
-full_name(#{<<"name">> := Name,
+% TODO include the name
+full_name(#{<<"name">> := _Name,
             <<"issue_number">> := IssueNumber,
             <<"volume">> := #{<<"name">> := VolumeName}},
           Options) ->

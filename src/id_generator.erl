@@ -11,6 +11,7 @@
 -define(SERVER_NAME, ?MODULE).
 
 -define(FIRST_ID, 1).
+-define(LOAD_TIMEOUT, 5000).
 
 -record(idgen_entry, {key :: {any(), any()},
                       id  :: non_neg_integer()
@@ -60,6 +61,7 @@ handle_call({get_id, Namespace, Name}, _From, State0) ->
     {reply, {ok, Id}, State}.
 
 handle_cast(load, _State) ->
+    ok = mnesia:wait_for_tables([idgen_entry], ?LOAD_TIMEOUT),
     Fold = fun(#idgen_entry{key=Key, id=Id}, {Max, Lookup0}) ->
                    Lookup = Lookup0#{Key => Id},
                    if Id > Max -> {Id, Lookup};
