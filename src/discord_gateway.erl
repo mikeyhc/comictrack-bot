@@ -204,14 +204,14 @@ await_ws_upgrade(ConnPid) ->
     StreamRef.
 
 
-handle_common({heartbeat, _Pid, _Caller}, Data) ->
-    send_heartbeat(Data),
+handle_common({heartbeat, _Pid, Caller}, Data) ->
+    send_heartbeat(Data, Caller),
     {next_state, await_heartbeat_ack, Data};
 handle_common(Msg, Data) ->
     handle_down(Msg, Data).
 
-send_heartbeat(Data=#data{sequence=Seq}) ->
-    ?LOG_INFO("sending heartbeat"),
+send_heartbeat(Data=#data{sequence=Seq}, Caller) ->
+    ?LOG_INFO("sending heartbeat (~p)", [Caller]),
     send_ws_message(?HEARTBEAT_OP, Seq, Data).
 
 build_os() ->

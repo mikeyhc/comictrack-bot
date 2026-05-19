@@ -4,8 +4,7 @@
 
 start(IV, Data) ->
     CallerPid = self(),
-    TimerId = make_ref(),
-    Fun = fun() -> CallerPid ! {heartbeat, Data, TimerId} end,
+    Fun = fun() -> CallerPid ! {heartbeat, Data, make_ref()} end,
     {ok, {interval, Ref}} = timer:apply_interval(IV, Fun),
     {ok, Ref}.
 
