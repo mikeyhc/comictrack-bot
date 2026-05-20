@@ -5,7 +5,7 @@
 -include("types.hrl").
 
 % Public API
--export([start_link/1]).
+-export([start_link/2, behaviour_info/1]).
 
 % gen_statem callbacks
 -export([callback_mode/0, init/1]).
@@ -50,20 +50,26 @@
                resume_url      :: optional(binary()),
                session_id      :: optional(binary()),
                previous_state  :: optional(atom()),
+               module          :: atom(),
                configuration   :: #configuration{}
                }).
 
 % Public API
--spec start_link(string() | binary()) -> {ok, pid()}.
-start_link(BotToken) ->
-    gen_statem:start_link({local, ?SERVER_NAME}, ?MODULE, [BotToken], []).
+-spec start_link(atom(), string() | binary()) -> {ok, pid()}.
+start_link(Module, BotToken) ->
+    gen_statem:start_link({local, ?SERVER_NAME}, ?MODULE, [Module, BotToken],
+                          []).
+
+-spec behaviour_info(callbacks) -> [{atom(), non_neg_integer()}].
+behaviour_info(callbacks) -> [{process, 1}].
 
 % gen_statem callbacks
 callback_mode() -> [state_functions, state_enter].
 
-init([BotToken]) ->
+init([Module, BotToken]) ->
     gen_statem:cast(self(), connect),
-    {ok, disconnected, #data{configuration=#configuration{bot_token=BotToken}}}.
+    {ok, disconnected, #data{module=Module,
+                             configuration=#configuration{bot_token=BotToken}}}.
 
 disconnected(enter, _OldState, Data) ->
     {keep_state, Data};
@@ -155,14 +161,15 @@ await_heartbeat_ack(info, Msg, Data) ->
 connected(enter, _OldState, Data) ->
     {keep_state, Data};
 connected(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
-          Data0=#data{connection=#connection{pid=ConnPid,
+          Data0=#data{module=Module,
+                      connection=#connection{pid=ConnPid,
                                              sref=StreamRef}}) ->
     Msg = jsone:decode(JsonMsg),
     case maps:get(<<"op">>, Msg) of
         ?MESSAGE_OP ->
             ?LOG_DEBUG("received message: ~p", [Msg]),
             ?LOG_DEBUG("JSON message: ~s", [jsone:encode(Msg)]),
-            message_engine:process(maps:get(<<"d">>, Msg)),
+            Module:process(maps:get(<<"d">>, Msg)),
             {keep_state, update_seq(Msg, Data0)};
         ?RECONNECT_OP ->
             Data = prepare_reconnect(Data0),
@@ -261,6 +268,7 @@ prepare_reconnect(Data0=#data{connection=Connection}) ->
     gun:close(ConnPid),
     Data = remove_heartbeat(Data0),
     gun_util:await_down(ConnPid, MRef),
+    ?LOG_INFO("connection successfully closed"),
     Data#data{connection=undefined}.
 
 open_ws_connection(Url) ->

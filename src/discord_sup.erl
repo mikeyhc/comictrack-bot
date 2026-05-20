@@ -35,8 +35,8 @@ init([BotToken]) ->
         #{id => discord_api,
           start => {discord_api, start_link, [BotToken]}
          },
-        #{id => discord_gateway,
-          start => {discord_gateway, start_link, [BotToken]}
+        #{id => message_engine,
+          start => {message_engine, start_link, [BotToken]}
          }
     ],
     {ok, {SupFlags, ChildSpecs}}.

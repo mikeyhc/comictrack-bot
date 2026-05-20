@@ -1,8 +1,10 @@
 -module(message_engine).
+-behaviour(discord_gateway).
 
 -include("ui_prefixes.hrl").
 -include_lib("kernel/include/logger.hrl").
 
+-export([start_link/1]).
 -export([process/1]).
 
 -define(APPLICATION_COMMAND, 2).
@@ -22,6 +24,9 @@
 -define(MAX_RESULTS, 10).
 
 -define(CACHE_DURATION, (15 * 60)). % 15 minutes
+
+start_link(BotToken) ->
+    discord_gateway:start_link(?MODULE, BotToken).
 
 process(D=#{<<"id">> := InteractionId,
             <<"token">> := InteractionToken,

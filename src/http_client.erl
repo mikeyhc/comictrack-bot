@@ -121,8 +121,11 @@ handle_info({gun_down, ConnPid, _Protocol, Reason, _StreamRefs},
                                          port := Port},
                          connection=#connection{pid=ConnPid,
                                                 mref=MRef}}) ->
+    ?LOG_INFO("Discord API disconnected"),
     case gun_util:handle_down(ConnPid, Reason, Host, Port) of
-        connected -> {noreply, State};
+        connected ->
+            ?LOG_INFO("Discord API reconnected"),
+            {noreply, State};
         disconnected ->
             gun:close(ConnPid),
             gun_util:await_down(ConnPid, MRef),

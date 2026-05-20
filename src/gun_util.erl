@@ -4,6 +4,8 @@
 
 -export([handle_down/4, await_down/2]).
 
+-define(DOWN_TIMEOUT, 100).
+
 -spec handle_down(pid(), any(), iolist(), iolist()) -> connected | disconnected.
 handle_down(ConnPid, Reason, Host, Port) ->
     case temporary_reason(Reason) of
@@ -24,10 +26,23 @@ handle_down(ConnPid, Reason, Host, Port) ->
 await_down(ConnPid, MRef) ->
     receive
         {'DOWN', MRef, process, ConnPid, shutdown} -> ok
-    after 1000 -> ?LOG_ERROR("didn't receive down message")
-    end.
+    after ?DOWN_TIMEOUT -> ?LOG_ERROR("didn't receive down message")
+    end,
+    empty_queue(ConnPid, 0).
 
 temporary_reason(normal) -> true;
 temporary_reason({error, closesd}) -> true;
 temporary_reason({error, einval}) -> true;
 temporary_reason(_Reason) -> false.
+
+empty_queue(ConnPid, Count) ->
+    receive
+        {gun_ws, ConnPid, _StreamRef, _Msg} -> empty_queue(ConnPid, Count + 1);
+        {gun_response, ConnPid, _StreamRef, _Fin, _Status, _Headers} ->
+            empty_queue(ConnPid, Count + 1);
+        {gun_data, ConnPid, _StreamRef, _Fin, _Data} ->
+            empty_queue(ConnPid, Count + 1);
+        {gun_down, ConnPid, _Protocol, _Reason, _StreamRefs} ->
+            empty_queue(ConnPid, Count + 1)
+    after 0 -> ?LOG_INFO("dropped ~p messages", [Count])
+    end.
