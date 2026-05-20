@@ -1,10 +1,10 @@
 -module(discord_heartbeat).
 
--export([start/2, stop/1]).
+-export([start/1, stop/1]).
 
-start(IV, Data) ->
+start(IV) ->
     CallerPid = self(),
-    Fun = fun() -> CallerPid ! {heartbeat, Data, make_ref()} end,
+    Fun = fun() -> CallerPid ! heartbeat end,
     {ok, {interval, Ref}} = timer:apply_interval(IV, Fun),
     {ok, Ref}.
 

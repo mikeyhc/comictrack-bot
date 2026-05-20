@@ -33,6 +33,8 @@
 -define(HELLO_OP, 10).
 -define(HEARTBEAT_ACK_OP, 11).
 
+% ws codes
+-define(WS_SERVICE_RESTART, 1012).
 
 -record(connection, {pid  :: pid(),
                      mref :: reference(),
@@ -136,12 +138,17 @@ await_heartbeat_ack(info, {gun_ws, ConnPid,StreamRef, {text, JsonMsg}},
         _ ->
             {keep_state, Data, [postpone]}
     end;
-await_heartbeat_ack(info, {heartbeat, Pid, Caller}, Data) ->
-    ?LOG_WARNING("heartbeat[~p] received during heartbeat_ack[~p][~p]",
-                 [Pid, Data#data.connection#connection.pid, Caller]),
-    {keep_state, Data};
-await_heartbeat_ack(state_timeout, ack_timeout, Data) ->
-    {stop, {error, heartbeat_ack_timeout}, Data};
+await_heartbeat_ack(info, heartbeat, Data0) ->
+    ?LOG_WARNING("heartbeat received during heartbeat_ack, zombie connection, "
+                 "reconnecting"),
+    ws_close(?WS_SERVICE_RESTART, <<"heartbeat_ack not received">>, Data0),
+    Data = prepare_reconnect(Data0),
+    {next_state, disconnected, Data};
+await_heartbeat_ack(state_timeout, ack_timeout, Data0) ->
+    ?LOG_WARNING("heartbeat_ack not received, zombie connection, reconnecting"),
+    ws_close(?WS_SERVICE_RESTART, <<"heartbeat_ack not received">>, Data0),
+    Data = prepare_reconnect(Data0),
+    {next_state, disconnected, Data};
 await_heartbeat_ack(info, Msg, Data) ->
     handle_down(Msg, Data).
 
@@ -172,10 +179,10 @@ handle_down({gun_down, ConnPid, ws, closed, _Remaining},
                                                host=Host}}) ->
     ?LOG_INFO("~p temporarily disconnected from ~s:~p",
               [ConnPid, Host, ?WSS_PORT]),
+    Data = remove_heartbeat(Data0),
     {ok, Protocol} = gun:await_up(ConnPid),
     ?LOG_INFO("~p reconnected to ~s:~p with protocol ~p",
               [ConnPid, Host, ?WSS_PORT, Protocol]),
-    Data = remove_heartbeat(Data0),
     Conn = upgrade_ws_connection(Protocol, Data),
     {next_state, await_hello, Data#data{connection=Conn}};
 handle_down({gun_down, ConnPid, _Protocol, Err={error, _Error},
@@ -204,14 +211,14 @@ await_ws_upgrade(ConnPid) ->
     StreamRef.
 
 
-handle_common({heartbeat, _Pid, Caller}, Data) ->
-    send_heartbeat(Data, Caller),
+handle_common(heartbeat, Data) ->
+    send_heartbeat(Data),
     {next_state, await_heartbeat_ack, Data};
 handle_common(Msg, Data) ->
     handle_down(Msg, Data).
 
-send_heartbeat(Data=#data{sequence=Seq}, Caller) ->
-    ?LOG_INFO("sending heartbeat (~p)", [Caller]),
+send_heartbeat(Data=#data{sequence=Seq}) ->
+    ?LOG_INFO("sending heartbeat"),
     send_ws_message(?HEARTBEAT_OP, Seq, Data).
 
 build_os() ->
@@ -243,9 +250,8 @@ remove_heartbeat(Data=#data{heartbeat=HeartbeatPid}) ->
     Data#data{heartbeat=undefined}.
 
 start_heartbeat(#{<<"heartbeat_interval">> := HeartbeatIV},
-                Data=#data{heartbeat=undefined,
-                           connection=#connection{pid=ConnPid}}) ->
-    {ok, HeartbeatPid} = discord_heartbeat:start(HeartbeatIV, ConnPid),
+                Data=#data{heartbeat=undefined}) ->
+    {ok, HeartbeatPid} = discord_heartbeat:start(HeartbeatIV),
     ?LOG_INFO("heartbeat started with interval: ~p", [HeartbeatIV]),
     Data#data{heartbeat=HeartbeatPid}.
 
@@ -297,3 +303,6 @@ upgrade_ws_connection(Protocol, Data) ->
             Data#data.connection#connection{sref=StreamRef};
         _ -> throw({unsupported_protocol, Protocol})
     end.
+
+ws_close(Code, Msg, #data{connection=#connection{pid=ConnPid, sref=SRef}}) ->
+    gun:ws_send(ConnPid, SRef, {close, Code, Msg}).
