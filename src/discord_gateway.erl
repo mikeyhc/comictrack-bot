@@ -198,9 +198,13 @@ handle_down({gun_down, ConnPid, _Protocol, Err={error, _Error},
     ?LOG_INFO("~p permanently disconnected from ~s:~p",
               [ConnPid, Host, ?WSS_PORT]),
     throw(Err);
-handle_down({gun_ws, ConnPid, StreamRef, {close, 1001, <<>>}},
+handle_down({gun_ws, ConnPid, StreamRef, {close, Code, <<>>}},
             Data0=#data{connection=#connection{pid=ConnPid,
                                                sref=StreamRef}}) ->
+    if Code < 1000 orelse Code > 1001 -> throw({unexpected_close_code, Code});
+       true -> ok
+    end,
+    ?LOG_INFO("received close(~p) message, reconnecting", [Code]),
     Data = prepare_reconnect(Data0),
     {next_state, disconnected, Data}.
 
