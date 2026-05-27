@@ -1,14 +1,11 @@
--module(discord_commands).
+-module(comictrack_commands).
 
 -include_lib("kernel/include/logger.hrl").
 
--export([install/2]).
+-import(discord_commands, [command/3, subcommand_group/3, subcommand/2,
+                           subcommand/3, string_input/3, boolean_input/2]).
 
--define(SUBCOMMAND_TYPE, 1).
--define(SUBCOMMAND_GROUP_TYPE, 2).
--define(STRING_INPUT_TYPE, 3).
--define(INTEGER_INPUT_TYPE, 4).
--define(BOOLEAN_INPUT_TYPE, 5).
+-export([install/2]).
 
 install(ApplicationId, BotToken) ->
     application:ensure_all_started(gun),
@@ -102,47 +99,3 @@ unread_list_subcommand() ->
 unread_read_subcomand() ->
     subcommand(<<"read">>, <<"Mark issues as read">>).
 
-%% helper methods
-
-command(Name, Description, Options) ->
-    #{name => Name,
-      description => Description,
-      options => Options
-     }.
-
-subcommand_group(Name, Description, Options) ->
-    #{name => Name,
-      description => Description,
-      type => ?SUBCOMMAND_GROUP_TYPE,
-      options => Options
-     }.
-
-subcommand(Name, Description) ->
-    #{name => Name,
-      description => Description,
-      type => ?SUBCOMMAND_TYPE
-     }.
-
-subcommand(Name, Description, Options) ->
-    #{name => Name,
-      description => Description,
-      type => ?SUBCOMMAND_TYPE,
-      options => Options
-     }.
-
-string_input(Name, Description, Options) ->
-    build_input(?STRING_INPUT_TYPE, Name, Description, Options).
-
-boolean_input(Name, Description) ->
-    boolean_input(Name, Description, #{}).
-
-boolean_input(Name, Description, Options) ->
-    build_input(?BOOLEAN_INPUT_TYPE,  Name, Description, Options).
-
-build_input(Type, Name, Description, Options) ->
-    Required = maps:get(required, Options, false),
-    #{name => Name,
-      description => Description,
-      type => Type,
-      required => Required
-     }.
