@@ -3,22 +3,13 @@
 
 -include("ui_prefixes.hrl").
 -include_lib("kernel/include/logger.hrl").
+-include_lib("accord/include/discord_message_flags.hrl").
+-include_lib("accord/include/discord_interaction_types.hrl").
 
 -export([start_link/1]).
 -export([process/1]).
 
--define(APPLICATION_COMMAND, 2).
--define(MESSAGE_COMPONENT, 3).
--define(MODAL_SUBMIT, 5).
-
--define(COMPONENT_FLAG, (1 bsl 15)).
--define(EPHEMERAL_FLAG, (1 bsl 6)).
--define(DEFAULT_FLAGS, (?EPHEMERAL_FLAG)).
-
--define(PONG, 1).
--define(INTERACTION_REPLY, 4).
--define(DEFERRED_UPDATE_MESSAGE, 6).
--define(UPDATE_MESSAGE, 7).
+-define(DEFAULT_FLAGS, (?DMF_EPHEMERAL)).
 
 -define(MAX_SELECT_ELEMENTS, 20).
 -define(MAX_RESULTS, 10).
@@ -50,19 +41,19 @@ process(Msg) ->
     ?LOG_WARNING("unhandled message: ~p", [Msg]),
     ok.
 
-handle_msg(?APPLICATION_COMMAND,
+handle_msg(?DIT_APPLICATION_COMMAND,
            #{<<"name">> := Cmd, <<"options">> := Options},
            _Message, Member, IToken)->
     handle_command(Cmd, Options, Member, IToken);
-handle_msg(?MODAL_SUBMIT,
+handle_msg(?DIT_MODAL_SUBMIT,
            #{<<"custom_id">> := CustomId, <<"components">> := Components},
            _Message, Member, IToken) ->
     handle_modal_reply(CustomId, Components, Member, IToken);
-handle_msg(?MESSAGE_COMPONENT,
+handle_msg(?DIT_MESSAGE_COMPONENT,
            #{<<"component_type">> := 2, <<"custom_id">> := Id},
            Message, Member, IToken) ->
     handle_button_press(Id, Message, Member, IToken);
-handle_msg(?MESSAGE_COMPONENT,
+handle_msg(?DIT_MESSAGE_COMPONENT,
            #{<<"component_type">> := 3, <<"custom_id">> := Id,
              <<"values">> := Values},
            _Message, Member, IToken) ->
@@ -465,7 +456,7 @@ send_interaction_reply(Msg, IToken) ->
 send_interaction_reply_components(Components, IToken) ->
     Body = #{
              components => Components,
-             flags => ?DEFAULT_FLAGS bor ?COMPONENT_FLAG
+             flags => ?DEFAULT_FLAGS bor ?DMF_IS_COMPONENTS_V2
             },
     send_interaction_reply_(Body, IToken).
 
@@ -474,7 +465,7 @@ send_interaction_reply_(Msg,
                         #{interaction_id := InteractionId,
                           interaction_token := InteractionToken}) ->
     Reply = #{
-              type => ?INTERACTION_REPLY,
+              type => ?DICT_CHANNEL_MESSAGE_WITH_SOURCE,
               data => Msg
              },
     discord_api:interaction_callback(
@@ -488,10 +479,10 @@ send_interaction_update(Msg,
                           interaction_token := InteractionToken
                          }) ->
     Update = #{
-               type => ?UPDATE_MESSAGE,
+               type => ?DICT_UPDATE_MESSAGE,
                data => #{
                    components => Msg,
-                   flags => ?DEFAULT_FLAGS bor ?COMPONENT_FLAG
+                   flags => ?DEFAULT_FLAGS bor ?DMF_IS_COMPONENTS_V2
                }
               },
     discord_api:interaction_callback(
@@ -503,7 +494,7 @@ send_interaction_update(Msg,
 send_interaction_pong(#{interaction_id := InteractionId,
                         interaction_token := InteractionToken
                        }) ->
-    Pong = #{type => ?DEFERRED_UPDATE_MESSAGE},
+    Pong = #{type => ?DICT_DEFERRED_UPDATE_MESSAGE},
     discord_api:interaction_callback(
       InteractionId,
       InteractionToken,

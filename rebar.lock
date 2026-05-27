@@ -1,7 +1,11 @@
 [{<<"accord">>,
   {git,"https://github.com/mikeyhc/accord",
-       {ref,"86b76bb226115c3de3fa4e5e0067dc759cc5e5d8"}},
+       {ref,"70ae7810beb59941f6d0c88c97fc73f55173fb6c"}},
   0},
+ {<<"cowboy">>,
+  {git,"https://github.com/ninenines/cowboy",
+       {ref,"3b9fb5214d70f1c4707a095c4193214bc12a7c36"}},
+  1},
  {<<"cowlib">>,
   {git,"https://github.com/ninenines/cowlib",
        {ref,"f8d0ad7f19b5dddd33cbfb089ebd2e2be2a81a5d"}},
@@ -21,4 +25,8 @@
  {<<"jsone">>,
   {git,"https://github.com/sile/jsone",
        {ref,"a1c481fbba655eb1a1dceae259864f46d2933aa6"}},
-  0}].
+  0},
+ {<<"ranch">>,
+  {git,"https://github.com/ninenines/ranch",
+       {ref,"10b51304b26062e0dbfd5e74824324e9a911e269"}},
+  2}].

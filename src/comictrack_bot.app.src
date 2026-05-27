@@ -7,8 +7,9 @@
         kernel,
         stdlib,
         mnesia,
-        gun,
-        jsone
+        jsone,
+        gunext,
+        accord
     ]},
     {env, []},
     {modules, []},
