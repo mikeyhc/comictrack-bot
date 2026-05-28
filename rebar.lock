@@ -1,6 +1,6 @@
 [{<<"accord">>,
   {git,"https://github.com/mikeyhc/accord",
-       {ref,"70ae7810beb59941f6d0c88c97fc73f55173fb6c"}},
+       {ref,"9ddcda2ff6f182977bed2852a1aa256139282abf"}},
   0},
  {<<"cowboy">>,
   {git,"https://github.com/ninenines/cowboy",
