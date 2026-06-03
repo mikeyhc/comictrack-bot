@@ -1,6 +1,7 @@
 -module(id_generator).
-
 -behaviour(gen_server).
+
+-include("types.hrl").
 
 %  Public API
 -export([install/1, start_link/0, get_id/2, get_volume_id/1, get_issue_id/2]).
@@ -17,8 +18,8 @@
                       id  :: non_neg_integer()
                      }).
 
--record(state, {lookup   :: maps:map(),
-                next_idx :: non_neg_integer()
+-record(state, {lookup=#{} :: #{},
+                next_idx   :: optional(non_neg_integer())
                }).
 
 % Public API

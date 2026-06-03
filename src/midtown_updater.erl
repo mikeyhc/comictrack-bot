@@ -5,6 +5,7 @@
 tracked_volumes() ->
     ["we don't kill spiders: season of the witch"].
 
+-spec fetch_all_volumes_from_api() -> [{ok, #{}}].
 fetch_all_volumes_from_api() ->
     lists:map(fun fetch_volume_from_api/1, tracked_volumes()).
 

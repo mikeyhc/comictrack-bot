@@ -10,7 +10,7 @@
 
 -record(request_cache_entry, {id     :: binary(),
                               data   :: any(),
-                              expiry :: calendar:datetime()
+                              expiry :: non_neg_integer()
                              }).
 
 -spec install([node()]) -> ok.

@@ -78,10 +78,7 @@ remove_user_volume(UserId, VolumeId) ->
 -spec add_user_issue(binary(), binary(), non_neg_integer()) -> ok.
 add_user_issue(UserId, VolumeId, IssueId) ->
     Fun = fun() ->
-                  Pattern = #user_volume{user_and_volume_id={UserId, VolumeId},
-                                         _ = '_'
-                                        },
-                  case mnesia:match_object(Pattern) of
+                  case mnesia:read({user_volume, {UserId, VolumeId}}) of
                       [] -> {error, no_volume_found};
                       [Entry0=#user_volume{read_issues=Read0}] ->
                           Read = sets:add_element(IssueId, Read0),
@@ -96,10 +93,7 @@ add_user_issue(UserId, VolumeId, IssueId) ->
 -spec remove_user_issue(binary(), binary(), non_neg_integer()) -> ok.
 remove_user_issue(UserId, VolumeId, IssueId) ->
     Fun = fun() ->
-                  Pattern = #user_volume{user_and_volume_id={UserId, VolumeId},
-                                         _ = '_'
-                                        },
-                  case mnesia:match_object(Pattern) of
+                  case mnesia:read({user_volume, {UserId, VolumeId}}) of
                       [] -> {error, no_volume_found};
                       [Entry0=#user_volume{read_issues=Read0}] ->
                           Read = sets:del_element(IssueId, Read0),

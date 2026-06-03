@@ -6,6 +6,7 @@
 
 -define(SERVER_NAME, ?MODULE).
 
+-spec start_link(iolist()) -> {ok, pid()}.
 start_link(MidtownHost) ->
     Configuration = #{
         host => MidtownHost,
@@ -13,6 +14,8 @@ start_link(MidtownHost) ->
     },
     http_client:start_link(?SERVER_NAME, Configuration).
 
+-spec volume_search(string()) -> {ok, binary()} |
+                                 {error, {non_neg_integer(), binary()}}.
 volume_search(Name) ->
     Options = #{query_params => [{"q", Name},
                                  {"pp", "100"},

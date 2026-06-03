@@ -14,7 +14,7 @@
 -define(NAME_OPTION_LENGTH, 50).
 -define(MAX_RESULTS, 10).
 
--spec volume_select_modal(binary(), [comic_volume:volume()]) ->
+-spec volume_select_modal(binary(), [comic_volume:comic_volume()]) ->
     discord_ui:discord_modal().
 volume_select_modal(Id, Volumes) ->
     VolumeOptions = lists:map(fun build_volume_option/1, Volumes),
@@ -47,6 +47,8 @@ page_controls(Prefix, Page, MaxPage) ->
                         #{disabled => Page >= MaxPage})
                 ])].
 
+-spec read_select(binary(), [comic_issue:comic_issue()], binary(),
+                  non_neg_integer()) -> [discord_ui:discord_component()].
 read_select(PagePrefix, Issues, ReadIssues, Page) ->
     Builder = fun(I=#{<<"id">> := Id,
                       <<"volume">> := #{<<"id">> := VolumeId}}) ->
@@ -85,7 +87,7 @@ volume_list(Volumes, Page) ->
                    <<?VOLUME_PAGE_PREFIX>>,
                    Page).
 
--spec volume_view(comic_volume:volume(), sets:set(), non_neg_integer()) ->
+-spec volume_view(comic_volume:comic_volume(), sets:set(), non_neg_integer()) ->
     [discord_ui:discord_component()].
 volume_view(#{<<"name">> := Name,
               <<"id">> := VolumeId,

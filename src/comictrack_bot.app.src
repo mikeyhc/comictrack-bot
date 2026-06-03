@@ -9,10 +9,13 @@
         mnesia,
         jsone,
         gunext,
-        accord
+        accord,
+        htmerl
     ]},
     {env, []},
-    {modules, []},
+    {modules, [
+        comic_repository_backend
+    ]},
     {licenses, ["The Unlicense"]},
     {links, []}
  ]}.

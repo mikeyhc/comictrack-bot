@@ -17,6 +17,8 @@
                         last_updated :: non_neg_integer()
                        }).
 
+-type midtown_volume() :: #{'_last_updated' := non_neg_integer()}.
+
 %% Public API
 
 -spec install([node()]) -> ok.
@@ -42,7 +44,7 @@ store_volume(VolumeResponse=#{<<"name">> := Name, <<"id">> := Id}) ->
                             },
     mnesia:activity(transaction, fun() -> mnesia:write(Record) end).
 
--spec get_volume(Filter) -> [#{}]
+-spec get_volume(Filter) -> [midtown_volume()]
     when Filter :: #{id => non_neg_integer(), name => binary()}.
 get_volume(Filter) ->
     case {maps:get(id, Filter, undefined), maps:get(name, Filter, undefined)} of
@@ -52,7 +54,7 @@ get_volume(Filter) ->
         {_, _} -> throw({conflicting_filters, [id, name]})
     end.
 
--spec get_volumes() -> [#{}].
+-spec get_volumes() -> [midtown_volume()].
 get_volumes() ->
     lists:map(fun volume_response/1, get_all(midtown_volume)).
 
@@ -71,7 +73,7 @@ store_issue(IssueResponse=#{<<"id">> := Id,
                            },
     mnesia:activity(transaction, fun() -> mnesia:write(Record) end).
 
--spec get_issues() -> [#{}].
+-spec get_issues() -> [midtown_volume()].
 get_issues() ->
     lists:map(fun issue_response/1, get_all(midtown_issue)).
 

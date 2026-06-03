@@ -4,10 +4,10 @@
 
 -export([install/2]).
 
+-spec install([node()], #{atom() := [tuple()]}) -> ok.
 install(Nodes, Tables) ->
     case mnesia:create_schema(Nodes) of
         ok -> ok;
-        {atomic, ok} -> ok;
         {error, {_, {already_exists, _}}} -> ok
     end,
     {_, []} = rpc:multicall(Nodes, application, start, [mnesia]),

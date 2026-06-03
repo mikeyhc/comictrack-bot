@@ -31,6 +31,6 @@ stop(_State) ->
     ok.
 
 install(Nodes, DiscordAppId, DiscordBotToken) ->
-    DBs = [comicvine_db, user_db, id_generator, midtown_db],
+    DBs = [comicvine_db, user_db, id_generator, midtown_db, request_cache],
     lists:foreach(fun(DB) -> DB:install(Nodes) end, DBs),
     comictrack_commands:install(DiscordAppId, DiscordBotToken).
