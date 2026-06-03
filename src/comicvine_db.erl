@@ -42,7 +42,7 @@ store_volume(VolumeResponse=#{<<"name">> := Name, <<"id">> := Id}) ->
                               },
     mnesia:activity(transaction, fun() -> mnesia:write(Record) end).
 
--spec get_volume(Filter) -> [#{}]
+-spec get_volume(Filter) -> comic_repository_backend:volume_results()
     when Filter :: #{id => non_neg_integer(), name => binary()}.
 get_volume(Filter) ->
     case {maps:get(id, Filter, undefined), maps:get(name, Filter, undefined)} of

@@ -1,6 +1,6 @@
 -module(comic_repository_backend).
 
--export_type([volume_filter/0]).
+-export_type([volume_filter/0, volume_results/0]).
 
 -type volume_filter() :: #{id := non_neg_integer(),
                            name := binary()}.

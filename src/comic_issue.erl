@@ -3,6 +3,10 @@
 -export([issue_number_sort/2, volume_name_sort/2]).
 -export([full_name/1, full_name/2]).
 
+-export_type([comic_issue/0]).
+
+-type comic_issue() :: #{binary() => any()}.
+
 issue_number_sort(#{<<"issue_number">> := A}, #{<<"issue_number">> := B}) ->
     binary_to_integer(A) < binary_to_integer(B).
 

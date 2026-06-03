@@ -8,7 +8,8 @@
 
 -define(MATCH_CUTOFF, 0.8).
 
--type comic_volume() :: #{'_last_updated' := non_neg_integer()}.
+-type comic_volume() :: #{'_last_updated' := non_neg_integer(),
+                          binary() => any()}.
 
 start_year_sort(#{<<"start_year">> := A}, #{<<"start_year">> := B}) ->
     A > B.

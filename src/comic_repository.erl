@@ -16,8 +16,10 @@ backends() -> [{<<"cv">>, comicvine_backend},
 
 %% Public API
 
--spec get_volume(Filter) -> {ok, #{}} | {error, not_found} |
-                            {error, {multiple_results, [#{}]}}
+-spec get_volume(Filter) -> {ok, comic_volume:comic_volume()} |
+                            {error, not_found} |
+                            {error, {multiple_results,
+                                     [comic_volume:comic_volume()]}}
     when Filter :: filter().
 get_volume(#{id := _Id, name := _Name}) ->
     throw({conflicting_filters, [id, name]});
@@ -49,8 +51,10 @@ get_volume_fold(Filter, {Code, Backend}, Acc) ->
     end.
 
 
--spec lookup_volume(Filter) -> {ok, #{}} | {error, not_found} |
-                               {error, {multiple_results, [#{}]}}
+-spec lookup_volume(Filter) -> {ok, comic_volume:comic_volume()} |
+                               {error, not_found} |
+                               {error, {multiple_results,
+                                        [comic_volume:comic_volume()]}}
     when Filter :: filter().
 lookup_volume(#{id := _Id, name := _Name}) ->
     throw({conflicting_filters, [id, name]});
@@ -83,7 +87,7 @@ lookup_volume_fold(Filter, {Code, Backend}, Acc) ->
             lists:map(fun(V) -> add_code_to_volume(Code, V) end, Volumes) ++ Acc
     end.
 
--spec get_new_issues() -> [#{}].
+-spec get_new_issues() -> [comic_volume:comic_volume()].
 get_new_issues() ->
     Builder = fun({Code, Backend}, Acc) ->
                       Issues0 = Backend:get_issues(),

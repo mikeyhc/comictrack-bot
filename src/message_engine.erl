@@ -228,9 +228,7 @@ handle_volume_add(VolumeName, Context) ->
         {error, not_found} ->
             send_interaction_reply(
               <<"could not find volume \"", CleanName/binary, "\"">>,
-              Context);
-        {error, Err} -> ?LOG_ERROR("volume add error: ~p", [Err]),
-            send_interaction_reply(<<"an unexpected error occurred">>, Context)
+              Context)
     end.
 
 

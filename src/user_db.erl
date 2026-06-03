@@ -58,7 +58,7 @@ get_all_volumes() ->
           end,
     sets:to_list(mnesia:activity(transaction, Fun)).
 
--spec get_all_users_with_volumes() -> #{}.
+-spec get_all_users_with_volumes() -> #{binary() => sets:set(binary())}.
 get_all_users_with_volumes() ->
     FoldFun = fun(#user_volume{user_and_volume_id={UserId, VolumeId}}, Acc) ->
                       Old = maps:get(UserId, Acc, sets:new()),
@@ -105,7 +105,7 @@ remove_user_issue(UserId, VolumeId, IssueId) ->
           end,
     mnesia:activity(transaction, Fun).
 
--spec get_user_issues(binary()) -> [#{}].
+-spec get_user_issues(binary()) -> #{binary() => [comic_issue:comic_issue()]}.
 get_user_issues(UserId) ->
     FoldFn = fun(#user_volume{user_and_volume_id={U, V}, read_issues=I}, Acc)
                    when U =:= UserId ->
