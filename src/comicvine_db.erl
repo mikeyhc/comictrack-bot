@@ -17,8 +17,6 @@
                           last_updated :: non_neg_integer()
                          }).
 
--type comicvine_volume() :: #{'_last_updated' := non_neg_integer()}.
-
 %% Public API
 
 -spec install([node()]) -> ok.
@@ -54,7 +52,7 @@ get_volume(Filter) ->
         {_, _} -> throw({conflicting_filters, [id, name]})
     end.
 
--spec get_volumes() -> [comicvine_volume()].
+-spec get_volumes() -> [comic_volume:comic_volume()].
 get_volumes() ->
     lists:map(fun volume_response/1, get_all(comicvine_volume)).
 
@@ -73,7 +71,7 @@ store_issue(IssueResponse=#{<<"id">> := Id,
                              },
     mnesia:activity(transaction, fun() -> mnesia:write(Record) end).
 
--spec get_issues() -> [comicvine_volume()].
+-spec get_issues() -> [comic_volume:comic_volume()].
 get_issues() ->
     lists:map(fun issue_response/1, get_all(comicvine_issue)).
 
