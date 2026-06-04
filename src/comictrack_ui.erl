@@ -47,7 +47,7 @@ page_controls(Prefix, Page, MaxPage) ->
                         #{disabled => Page >= MaxPage})
                 ])].
 
--spec read_select(binary(), [comic_issue:comic_issue()], binary(),
+-spec read_select(binary(), [comic_issue:comic_issue()], sets:set(),
                   non_neg_integer()) -> [discord_ui:discord_component()].
 read_select(PagePrefix, Issues, ReadIssues, Page) ->
     Builder = fun(I=#{<<"id">> := Id,
@@ -122,7 +122,7 @@ volume_view(#{<<"name">> := Name,
                    <<?VOLUME_VIEW_PAGE_PREFIX, VolumeId/binary, "_">>,
                    Page).
 
--spec string_reply(iolist()) -> discord_ui:discord_component().
+-spec string_reply(binary()) -> [discord_ui:discord_component()].
 string_reply(Reply) -> [text_display(Reply)].
 
 % helper methods

@@ -6,7 +6,7 @@
 
 -define(SERVER_NAME, ?MODULE).
 
--spec start_link(iolist()) -> {ok, pid()}.
+-spec start_link(string()) -> {ok, pid()}.
 start_link(MidtownHost) ->
     Configuration = #{
         host => MidtownHost,

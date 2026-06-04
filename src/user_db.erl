@@ -34,7 +34,7 @@ add_user_volume(UserId, VolumeId) ->
           end,
     mnesia:activity(transaction, Fun).
 
--spec get_user_volumes(binary()) -> [non_neg_integer()].
+-spec get_user_volumes(binary()) -> [binary()].
 get_user_volumes(UserId) ->
     Fun = fun() ->
                   mnesia:foldl(
@@ -75,7 +75,7 @@ remove_user_volume(UserId, VolumeId) ->
     mnesia:activity(transaction, Fun).
 
 %% issue functions
--spec add_user_issue(binary(), binary(), non_neg_integer()) -> ok.
+-spec add_user_issue(binary(), binary(), binary()) -> ok.
 add_user_issue(UserId, VolumeId, IssueId) ->
     Fun = fun() ->
                   case mnesia:read({user_volume, {UserId, VolumeId}}) of
@@ -90,7 +90,7 @@ add_user_issue(UserId, VolumeId, IssueId) ->
           end,
     mnesia:activity(transaction, Fun).
 
--spec remove_user_issue(binary(), binary(), non_neg_integer()) -> ok.
+-spec remove_user_issue(binary(), binary(), binary()) -> ok.
 remove_user_issue(UserId, VolumeId, IssueId) ->
     Fun = fun() ->
                   case mnesia:read({user_volume, {UserId, VolumeId}}) of
@@ -105,7 +105,8 @@ remove_user_issue(UserId, VolumeId, IssueId) ->
           end,
     mnesia:activity(transaction, Fun).
 
--spec get_user_issues(binary()) -> #{binary() => [comic_issue:comic_issue()]}.
+-spec get_user_issues(binary()) ->
+    #{binary() => sets:set(comic_issue:comic_issue())}.
 get_user_issues(UserId) ->
     FoldFn = fun(#user_volume{user_and_volume_id={U, V}, read_issues=I}, Acc)
                    when U =:= UserId ->

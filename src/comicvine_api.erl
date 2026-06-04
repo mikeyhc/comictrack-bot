@@ -16,6 +16,8 @@
 -define(ISSUE_TYPE, 4000).
 -define(VOLUME_TYPE, 4050).
 
+-type resp_body() :: #{binary() => any()}.
+
 % Public API
 -spec start_link(string() | binary()) -> {ok, pid()}.
 start_link(Token) ->
@@ -31,7 +33,7 @@ start_link(Token) ->
     http_client:start_link(?SERVER_NAME, Configuration).
 
 
--spec volume(non_neg_integer()) -> {ok, #{}} | {error, not_found}.
+-spec volume(non_neg_integer()) -> {ok, resp_body()} | {error, not_found}.
 volume(VolumeId) ->
     {ok, {200, Body}} = http_client:get(
                           ?SERVER_NAME,
@@ -42,7 +44,7 @@ volume(VolumeId) ->
         <<"Object Not Found">> -> {error, not_found}
     end.
 
--spec volumes([{string(), string()}]) -> {ok, #{}}.
+-spec volumes([{string(), string()}]) -> {ok, resp_body()}.
 volumes(Filters) ->
     {ok, {200, Body}} = http_client:get(
                           ?SERVER_NAME,
@@ -55,7 +57,7 @@ volumes(Filters) ->
     #{<<"error">> := <<"OK">>} = Reply,
     {ok, Reply}.
 
--spec issues([{string(), string()}]) -> {ok, #{}}.
+-spec issues([{string(), string()}]) -> {ok, resp_body()}.
 issues(Filters) ->
     {ok, {200, Body}} = http_client:get(
                           ?SERVER_NAME,

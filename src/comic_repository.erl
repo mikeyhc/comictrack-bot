@@ -8,7 +8,7 @@
 % this is less than 7 as its a lookback window (not the actual days)
 -define(ONE_WEEK, 6).
 
--type filter() :: #{id => non_neg_integer(), name => binary()}.
+-type filter() :: #{id => binary(), name => binary()}.
 
 backends() -> [{<<"cv">>, comicvine_backend},
                {<<"mt">>, midtown_backend}
