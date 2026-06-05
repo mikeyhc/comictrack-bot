@@ -61,18 +61,28 @@ generate_issue_from_html({_, _, _, _, Children}) ->
     PublisherValues = lists:filter(fun({_, <<$d, _/binary>>, _, _, _}) -> true;
                                       (_) -> false
                                    end, PublisherEntries),
-    {Dts, Dds} = lists:partition(fun({_, <<_:8, $t>>, _, _, _}) -> true;
-                                    (_) -> false
-                                 end, PublisherValues),
-    AddPublisherEntry = fun({{_, _, _, _, [Dt]},
-                             {_, _, _, _, Dd}},
-                             Acc) ->
-                                Acc#{clean_dt(Dt) => extract_dd_value(Dd)}
+    PublisherGroups = build_publisher_entries(PublisherValues),
+    AddPublisherEntry = fun({Dt, Dd}, Acc) ->
+                                CleanDt = clean_dt(Dt),
+                                DdValue = extract_dd_value(Dd),
+                                case maps:is_key(CleanDt, Acc) of
+                                    false -> Acc#{CleanDt => DdValue};
+                                    true ->
+                                        UFun = fun(Val) when is_list(Val) ->
+                                                       [DdValue|Val];
+                                                  (Val) when is_binary(Val) ->
+                                                       [DdValue,Val]
+                                               end,
+                                        maps:update_with(CleanDt,
+                                                         UFun,
+                                                         undefined,
+                                                         Acc)
+                                end
                         end,
     lists:foldl(AddPublisherEntry,
                 #{<<"volume">> => VolumeName,
                   <<"issue_number">> => IssueNumber},
-                lists:zip(Dts, Dds)).
+                PublisherGroups).
 
 
 parse_issue_name(Anchor) ->
@@ -170,6 +180,17 @@ find_start_year([First|Rest]) ->
                   end
           end,
     integer_to_binary(lists:foldl(Fun, GetYear(First), Rest)).
+
+build_publisher_entries(Entries) ->
+    Fold = fun({htmlElement, Key, _, _, Children}, {Dt, Dds}) ->
+                   if Key =:= <<"dt">> ->
+                          [NewDt] = Children,
+                          {NewDt, Dds};
+                      Key =:= <<"dd">> -> {Dt, [{Dt, Children}|Dds]}
+                   end
+           end,
+    {_Dt, Dds} = lists:foldl(Fold, {undefined, []}, Entries),
+    Dds.
 
 issue_stub(Issue) ->
     Fun = fun(Key, Acc) -> Acc#{Key => maps:get(Key, Issue, null)} end,

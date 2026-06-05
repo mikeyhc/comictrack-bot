@@ -3,7 +3,8 @@
 -export([fetch_volume_from_api/1, fetch_all_volumes_from_api/0]).
 
 tracked_volumes() ->
-    ["we don't kill spiders: season of the witch"].
+    ["we don't kill spiders: season of the witch",
+     "the matron IPI"].
 
 -spec fetch_all_volumes_from_api() -> [{ok, #{}}].
 fetch_all_volumes_from_api() ->

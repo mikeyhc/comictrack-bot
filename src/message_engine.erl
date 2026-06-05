@@ -476,6 +476,8 @@ send_interaction_update(Msg,
       Update
      ).
 
+send_interaction_pong(#{itoken := IToken}) ->
+    send_interaction_pong(IToken);
 send_interaction_pong(#{interaction_id := InteractionId,
                         interaction_token := InteractionToken
                        }) ->
