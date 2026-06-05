@@ -15,4 +15,5 @@ lookup_volume(Filter) ->
     end.
 
 fetch_volume(#{<<"id">> := Id}) -> midtown_db:get_volume(#{id => Id});
-fetch_volume(Id) when is_integer(Id) -> midtown_db:get_volume(#{id => Id}).
+fetch_volume(Id) when is_integer(Id) -> midtown_db:get_volume(#{id => Id});
+fetch_volume(Id) -> midtown_db:get_volume(Id).
