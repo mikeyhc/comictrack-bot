@@ -1,0 +1,23 @@
+name: Erlang CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+  
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install Erlang
+      run: |
+        sudo apt-get update && sudo apt-get install erlang rebar3
+    - name: Compile
+      run: rebar3 compile
+    - name: Check types
+      run: rebar3 dialyzer
