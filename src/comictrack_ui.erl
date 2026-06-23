@@ -6,7 +6,7 @@
 -import(discord_ui, [action_row/1, button/4, string_select/3, text_display/1,
                      label/2, modal_reply/3]).
 
--export([volume_select_modal/2, page_controls/3, read_select/4,
+-export([volume_select_components/1, page_controls/3, read_select/4,
          unread_issue_list/2, volume_list/2, volume_view/3,
          string_reply/1]).
 
@@ -14,16 +14,14 @@
 -define(NAME_OPTION_LENGTH, 50).
 -define(MAX_RESULTS, 10).
 
--spec volume_select_modal(binary(), [comic_volume:comic_volume()]) ->
-    discord_ui:discord_modal().
-volume_select_modal(Id, Volumes) ->
+-spec volume_select_components([comic_volume:comic_volume()]) ->
+    [discord_ui:discord_component()].
+volume_select_components(Volumes) ->
     VolumeOptions = lists:map(fun build_volume_option/1, Volumes),
-    modal_reply(<<"volume_select_modal_", Id/binary>>,
-                <<"Select Volume">>,
-                [label(<<"Which volume">>,
-                       string_select(<<"volume_name_select">>,
-                                     <<"Choose...">>,
-                                     VolumeOptions))]).
+    [label(<<"Which volume">>,
+           string_select(<<"volume_name_select">>,
+                         <<"Choose...">>,
+                         VolumeOptions))].
 
 -spec page_controls(binary(), non_neg_integer(), non_neg_integer()) ->
     [discord_ui:discord_component()].
