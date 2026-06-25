@@ -3,14 +3,10 @@
 
 -include("ui_prefixes.hrl").
 -include_lib("kernel/include/logger.hrl").
--include_lib("accord/include/discord_message_flags.hrl").
--include_lib("accord/include/discord_interaction_types.hrl").
 
 -export([start_link/1]).
 -export([process/2, process_application_command/3, process_modal_submit/3,
          process_message_component/3]).
-
--define(DEFAULT_FLAGS, (?DMF_EPHEMERAL)).
 
 -define(MAX_SELECT_ELEMENTS, 20).
 -define(MAX_RESULTS, 10).
@@ -22,20 +18,15 @@ start_link(BotToken) ->
 
 process(Msg, _Context) -> throw({not_implemented, Msg}).
 
--spec process_application_command(map(), map(),
-                                  discord_gateway:context()) -> ok.
 process_application_command(#{<<"name">> := Cmd, <<"options">> := Options},
                             _Message, Context)->
     handle_command(Cmd, Options, Context).
 
--spec process_modal_submit(map(), map(), discord_gateway:context()) -> ok.
 process_modal_submit(
            #{<<"custom_id">> := CustomId, <<"components">> := Components},
            _Message, Context) ->
     handle_modal_reply(CustomId, Components, Context).
 
--spec process_message_component(map(), map(),
-                                discord_gateway:context()) -> none().
 process_message_component(
            #{<<"component_type">> := 2, <<"custom_id">> := Id},
            Message, Context) ->
