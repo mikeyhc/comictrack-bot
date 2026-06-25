@@ -125,8 +125,9 @@ string_reply(Reply) -> [text_display(Reply)].
 
 % helper methods
 build_volume_option(Volume=#{<<"id">> := Id}) ->
-    #{label => comic_volume:full_name(Volume,
-                                      #{name_length => ?NAME_OPTION_LENGTH}),
+    VolumeName = comic_volume:full_name(Volume,
+                                        #{name_length => ?NAME_OPTION_LENGTH}),
+    #{label => VolumeName,
       value => Id
      }.
 
