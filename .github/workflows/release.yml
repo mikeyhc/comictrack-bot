@@ -13,12 +13,11 @@ jobs:
     steps:
     - uses: actions/checkout@v6
     - name: Install Erlang
-      run: |
-        sudo apt-get update && sudo apt-get install erlang rebar3
+      run: sudo apt-get update && sudo apt-get install erlang rebar3
     - name: Set version in app file
       run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
 
         VERSION=${GITHUB_REF_NAME#v}  # strips leading 'v' from tag
         sed -i "s/{vsn, \"[^\"]*\"}/{vsn, \"$VERSION\"}/" src/*.app.src
