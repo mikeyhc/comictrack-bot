@@ -27,7 +27,7 @@ full_name(#{<<"name">> := Name,
                    undefined -> Name;
                    Length ->
                        if size(Name) > Length ->
-                              Head = binary:part(Name, 0, Length - 3),
+                              Head = string:slice(Name, 0, Length - 3),
                               <<Head/binary, "...">>;
                           true -> Name
                        end
