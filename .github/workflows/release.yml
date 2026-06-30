@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  set-version:
+    runs-on: ubuntu-26.04
+    steps:
+    - uses: actions/checkout@v6
+    - name: Set version in app file
+      run: |
+        VERSION=${GITHUB_REF_NAME#v}  # strips leading 'v' from tag
+        sed -i "s/{vsn, \"[^\"]*\"}/{vsn, \"$VERSION\"}/" src/*.app.src
+        git add src/*.app.src
+        git commit -m "[skip-ci] bump to version ${VERSION}"
+        git push
+
+  build-release:
+    runs-on: ubuntu-26.04
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install Erlang
+      run: |
+        sudo apt-get update && sudo apt-get install erlang rebar3
+    - name: Build release
+      run: |
+        VERSION=${GITHUB_REF_NAME#v}  # strips leading 'v' from tag
+        rebar3 release
+        tar cfvz comictrack_bot-${VERSION}.tar.gz _build/default/rel/ -C comictrack_bot
+    - name: Upload release artifact
+      run: |
+        VERSION=${GITHUB_REF_NAME#v}  # strips leading 'v' from tag
+        gh release upload $GITHUB_REF_NAME comictrack_bot-${VERSION}.tar.gz
+

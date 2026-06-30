@@ -8,10 +8,10 @@ on:
 
 permissions:
   contents: read
-  
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
     - uses: actions/checkout@v6
     - name: Install Erlang
