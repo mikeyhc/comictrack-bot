@@ -2,33 +2,64 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
-  do-release:
+  check-version:
     runs-on: ubuntu-26.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+      version: ${{ steps.version.outputs.version }}
     steps:
-    - uses: actions/checkout@v6
-    - name: Install Erlang
-      run: sudo apt-get update && sudo apt-get install erlang rebar3
-    - name: Build release
-      run: rebar3 release
-    - name: Create tarball
-      run: |
-        APP=$(ls _build/default/rel/)
-        VERSION=${GITHUB_REF_NAME#v}
-        tar -czf ${APP}-${VERSION}.tar.gz -C _build/default/rel ${APP}
-    - name: Create GitHub release and upload asset
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        APP=$(ls _build/default/rel/)
-        VERSION=${GITHUB_REF_NAME#v}
-        gh release create ${{ github.ref_name }} \
-          --title "${{ github.ref_name }}" \
-          --generate-notes \
-          ${APP}-${VERSION}.tar.gz
+      - uses: actions/checkout@v6
+
+      - name: Check version change
+        id: version
+        run: |
+          CURRENT=$(grep -E '{vsn,' src/*.app.src | grep -oE '"[^"]+"' | tr -d '"')
+          LATEST=$(gh release view --json tagName --jq '.tagName' 2>/dev/null || echo "0.0.0")
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "Version unchanged, skipping release"
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Version changed: $LATEST -> $CURRENT"
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT" >> $GITHUB_OUTPUT
+          fi
+
+  release:
+    needs: check-version
+    if: needs.check-version.outputs.changed == 'true'
+    runs-on: ubuntu-26.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Erlang
+        run: sudo apt-get update && sudo apt-get install erlang rebar3
+
+      - name: Build release
+        run: rebar3 release
+
+      - name: Create tarball
+        run: |
+          APP=$(ls _build/default/rel/)
+          tar -czf ${APP}-${{ needs.check-version.outputs.version }}.tar.gz \
+            -C _build/default/rel ${APP}
+
+      - name: Create GitHub release and upload asset
+        run: |
+          APP=$(ls _build/default/rel/)
+          gh release create v${{ needs.check-version.outputs.version }} \
+            --title "v${{ needs.check-version.outputs.version }}" \
+            --generate-notes \
+            ${APP}-${{ needs.check-version.outputs.version }}.tar.gz
