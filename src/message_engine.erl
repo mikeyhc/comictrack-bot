@@ -6,7 +6,7 @@
 
 -export([start_link/1]).
 -export([process/2, process_application_command/3, process_modal_submit/3,
-         process_message_component/3]).
+         process_message_component/4]).
 
 -define(MAX_SELECT_ELEMENTS, 20).
 -define(MAX_RESULTS, 10).
@@ -27,14 +27,10 @@ process_modal_submit(
            _Message, Context) ->
     handle_modal_reply(CustomId, Components, Context).
 
-process_message_component(
-           #{<<"component_type">> := 2, <<"custom_id">> := Id},
-           Message, Context) ->
-    handle_button_press(Id, Message, Context);
-process_message_component(
-           #{<<"component_type">> := 3, <<"custom_id">> := Id,
-             <<"values">> := Values},
-           _Message, Context) ->
+process_message_component(button, Id, _Data, Context) ->
+    handle_button_press(Id, Context);
+process_message_component(string_select, Id, #{<<"values">> := Values},
+                          Context) ->
     handle_string_select(Id, Values, Context).
 
 handle_command(<<"comictrack">>, [Option], Context) ->
@@ -98,14 +94,12 @@ handle_modal_reply(<<"volume_select_modal_remove">>, [Select], Context) ->
     discord_interaction:reply(<<"removed volume \"", VolumeName/binary, "\"">>,
                               Context).
 
-handle_button_press(<<?VOLUME_PAGE_PREFIX, PageBin/binary>>,
-                    _Message, Context) ->
+handle_button_press(<<?VOLUME_PAGE_PREFIX, PageBin/binary>>, Context) ->
     Page = binary_to_integer(PageBin),
     VolumeIds = user_db:get_user_volumes(discord_context:user_id(Context)),
     VolumeList = comictrack_ui:volume_list(ids_to_volumes(VolumeIds), Page),
     discord_interaction:update(VolumeList, Context);
-handle_button_press(<<?VOLUME_VIEW_PAGE_PREFIX, Rest/binary>>,
-                    _Message, Context) ->
+handle_button_press(<<?VOLUME_VIEW_PAGE_PREFIX, Rest/binary>>, Context) ->
     [VolumeId, PageBin] = string:split(Rest, <<"_">>),
     Page = binary_to_integer(PageBin),
     {ok, Volume} = comic_repository:get_volume(#{id => VolumeId}),
@@ -113,15 +107,13 @@ handle_button_press(<<?VOLUME_VIEW_PAGE_PREFIX, Rest/binary>>,
     #{VolumeId := ReadIssues} = UserIssueIds,
     VolumeComponent = comictrack_ui:volume_view(Volume, ReadIssues, Page),
     discord_interaction:update(VolumeComponent, Context);
-handle_button_press(<<?ISSUE_PAGE_PREFIX, PageBin/binary>>,
-                    _Message, Context) ->
+handle_button_press(<<?ISSUE_PAGE_PREFIX, PageBin/binary>>, Context) ->
     Page = binary_to_integer(PageBin),
     UserId = discord_context:user_id(Context),
     Unread = comictrack_unread:get_user_unread_issues(UserId),
     IssueList = comictrack_ui:unread_issue_list(Unread, Page),
     discord_interaction:update(IssueList, Context);
-handle_button_press(<<?ISSUE_READ_PAGE_PREFIX, Rest/binary>>,
-                    _Message, Context) ->
+handle_button_press(<<?ISSUE_READ_PAGE_PREFIX, Rest/binary>>, Context) ->
     case Rest of
         <<"v", Rest0/binary>> ->
             [VolumeId, PageBin] = string:split(Rest0, <<"_">>),
@@ -407,11 +399,10 @@ generate_volume_read(V=#{<<"id">> := VolumeId,
     StartYearBin = if StartYear =:= null -> <<"">>;
                       true -> <<" [", StartYear/binary, "] ">>
                    end,
-    [#{<<"type">> => 10,
-       <<"content">> => <<"Issue list for ", ActualName/binary,
-                          StartYearBin/binary>>
-      }
-    ] ++ ReadSelect.
+
+    [discord_ui:text_display(
+       <<"Issue list for ", ActualName/binary, StartYearBin/binary>>
+    )] ++ ReadSelect.
 
 
 decorate_with_volume(Issue, #{<<"id">> := Id,
