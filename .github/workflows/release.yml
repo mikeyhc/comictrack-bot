@@ -22,7 +22,7 @@ jobs:
       - name: Check version change
         id: version
         run: |
-          CURRENT=$(grep -E '{vsn,' src/*.app.src | grep -oE '"[^"]+"' | tr -d '"')
+          CURRENT=$(cat VERSION)
           LATEST=$(gh release view --json tagName --jq '.tagName' 2>/dev/null || echo "0.0.0")
           if [ "$CURRENT" = "$LATEST" ]; then
             echo "Version unchanged, skipping release"
