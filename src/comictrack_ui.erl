@@ -1,10 +1,10 @@
 -module(comictrack_ui).
 
 -include("ui_prefixes.hrl").
--include("discord_ui.hrl").
 
--import(discord_ui, [action_row/1, button/4, string_select/3, text_display/1,
-                     label/2, modal_reply/3]).
+-import(discord_ui, [action_row/1, button/2, string_select/2, string_select/3,
+                     text_display/1, label/2, modal_reply/3, select_option/2,
+                     select_option/3]).
 
 -export([volume_select_components/1, page_controls/3, read_select/4,
          unread_issue_list/2, volume_list/2, volume_view/3,
@@ -19,9 +19,8 @@
 volume_select_components(Volumes) ->
     VolumeOptions = lists:map(fun build_volume_option/1, Volumes),
     [label(<<"Which volume">>,
-           string_select(<<"volume_name_select">>,
-                         <<"Choose...">>,
-                         VolumeOptions))].
+           string_select(<<"volume_name_select">>, VolumeOptions,
+                         #{placeholder => <<"Choose...">>}))].
 
 -spec page_controls(binary(), non_neg_integer(), non_neg_integer()) ->
     [discord_ui:discord_component()].
@@ -35,14 +34,14 @@ page_controls(Prefix, Page, MaxPage) ->
     PrevPageLink = <<Prefix/binary, PrevPageBin/binary>>,
     NextPageLink = <<Prefix/binary, NextPageBin/binary>>,
     [text_display(PageFooter),
-     action_row([button(?BUTTON_PRIMARY,
-                        <<"Previous Page">>,
-                        PrevPageLink,
-                        #{disabled => Page =:= 1}),
-                 button(?BUTTON_PRIMARY,
-                        <<"Next Page">>,
-                        NextPageLink,
-                        #{disabled => Page >= MaxPage})
+     action_row([button(primary,
+                        #{label => <<"Previous Page">>,
+                          custom_id => PrevPageLink,
+                          disabled => Page =:= 1}),
+                 button(primary,
+                        #{label => <<"Next Page">>,
+                          custom_id => NextPageLink,
+                          disabled => Page >= MaxPage})
                 ])].
 
 -spec read_select(binary(), [comic_issue:comic_issue()], sets:set(),
@@ -53,14 +52,9 @@ read_select(PagePrefix, Issues, ReadIssues, Page) ->
                       Cid = <<?ISSUE_READ_PREFIX, VolumeId/binary, "_",
                               Id/binary>>,
                       Read = sets:is_element(Id, ReadIssues),
-                      Default = if Read -> <<"Read">>;
-                                   true -> <<"Unread">>
-                                end,
                       [text_display(comic_issue:full_name(I)),
-                       action_row([string_select(Cid,
-                                                 Default,
-                                                 read_options())
-                                  ])]
+                       action_row([string_select(Cid, read_options(Read))])
+                       ]
               end,
     Truncated = lists:sublist(Issues, (Page - 1) * ?MAX_RESULTS + 1,
                               ?MAX_RESULTS),
@@ -127,21 +121,14 @@ string_reply(Reply) -> [text_display(Reply)].
 build_volume_option(Volume=#{<<"id">> := Id}) ->
     VolumeName = comic_volume:full_name(Volume,
                                         #{name_length => ?NAME_OPTION_LENGTH}),
-    #{label => VolumeName,
-      value => Id
-     }.
+    select_option(VolumeName, Id).
 
 count_pages(Input) ->
     round(math:ceil(length(Input) / ?MAX_RESULTS)).
 
-read_options() ->
-    [#{label => <<"Read">>,
-       value => <<"read">>
-      },
-     #{label => <<"Unread">>,
-       value => <<"unread">>
-      }
-    ].
+read_options(Read) ->
+    [select_option(<<"Read">>, <<"read">>, #{default => Read}),
+     select_option(<<"Unread">>, <<"unread">>, #{default => not Read})].
 
 paginated_list(Title, Entries, Formatter, PagePrefix, Page) ->
     Truncated = lists:sublist(Entries, (Page - 1) * ?MAX_RESULTS + 1,
