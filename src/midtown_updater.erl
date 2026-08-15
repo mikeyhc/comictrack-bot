@@ -4,7 +4,8 @@
 
 tracked_volumes() ->
     ["we don't kill spiders: season of the witch",
-     "the matron IPI"].
+     "the matron IPI",
+     "the vaude villians vs violante"].
 
 -spec fetch_all_volumes_from_api() -> [{ok, #{}}].
 fetch_all_volumes_from_api() ->
