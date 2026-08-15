@@ -98,4 +98,3 @@ unread_list_subcommand() ->
 
 unread_read_subcomand() ->
     subcommand(<<"read">>, <<"Mark issues as read">>).
-
