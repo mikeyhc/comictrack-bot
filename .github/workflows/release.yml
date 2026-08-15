@@ -48,18 +48,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install erlang rebar3
 
       - name: Build release
-        run: rebar3 release
-
-      - name: Create tarball
-        run: |
-          APP=$(ls _build/default/rel/)
-          tar -czf ${APP}-${{ needs.check-version.outputs.version }}.tar.gz \
-            -C _build/default/rel ${APP}
+        run: rebar3 tar
 
       - name: Create GitHub release and upload asset
         run: |
-          APP=$(ls _build/default/rel/)
+          TGZ=$(ls "_build/default/rel/comictrack_bot/comictrack_bot.${{ needs.check-version.outputs.version }}")
           gh release create ${{ needs.check-version.outputs.version }} \
             --title "${{ needs.check-version.outputs.version }}" \
             --generate-notes \
-            ${APP}-${{ needs.check-version.outputs.version }}.tar.gz
+            $TGZ
