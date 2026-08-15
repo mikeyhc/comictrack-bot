@@ -1,6 +1,6 @@
 {application, comictrack_bot, [
     {description, "Discord bot for tracking comic ownership and releases"},
-    {vsn, "0.3.1"},
+    {vsn, "0.3.2"},
     {registered, []},
     {mod, {comictrack_bot_app, []}},
     {applications, [
